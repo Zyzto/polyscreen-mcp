@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="integration_status" type="id" />
+    <item name="integration_tap_target" type="id" />
+    <item name="integration_gesture_target" type="id" />
+    <item name="integration_text_input" type="id" />
+</resources>

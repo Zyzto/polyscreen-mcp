@@ -1,0 +1,73 @@
+{
+  "name": "better-mobile-mcp",
+  "version": "0.1.0",
+  "description": "Capability-driven Android automation MCP server with first-class multi-display and gamepad support",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zyzto/better-mobile-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Zyzto/better-mobile-mcp/issues"
+  },
+  "homepage": "https://github.com/Zyzto/better-mobile-mcp#readme",
+  "keywords": [
+    "mcp",
+    "android",
+    "adb",
+    "automation",
+    "multi-display",
+    "gamepad"
+  ],
+  "bin": {
+    "better-mobile-mcp": "./dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE",
+    "companion/build.gradle.kts",
+    "companion/settings.gradle.kts",
+    "companion/app/build.gradle.kts",
+    "companion/app/src"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@11.15.1",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:device": "pnpm build && node scripts/device-acceptance.mjs",
+    "test:thor:destructive": "pnpm build && gradle -p companion :fixture:assembleDebug && node scripts/thor-destructive.mjs",
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm check && pnpm build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^15.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.7.0",
+    "prettier": "^3.9.5",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.64.0",
+    "vitest": "^4.1.10"
+  }
+}

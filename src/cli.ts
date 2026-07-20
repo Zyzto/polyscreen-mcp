@@ -1,0 +1,65 @@
+#!/usr/bin/env node
+
+import type { Server as HttpServer } from "node:http";
+
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Command } from "commander";
+
+import { CompanionManager } from "./backends/companion.js";
+import { startStreamableHttpServer } from "./mcp/http.js";
+import { createBetterMobileServer } from "./mcp/server.js";
+
+const program = new Command()
+  .name("better-mobile-mcp")
+  .description("Capability-driven Android automation MCP server")
+  .option(
+    "-p, --profile <profile...>",
+    "Enable tool profiles: core, diagnostics, companion, apps, files, performance, device-admin, emulator, unsafe, all",
+    ["core"],
+  )
+  .option(
+    "--listen <port>",
+    "Serve Streamable HTTP on 127.0.0.1 instead of stdio",
+  )
+  .option(
+    "--token <token>",
+    "Require a static bearer token for Streamable HTTP",
+  )
+  .parse();
+
+const options = program.opts<{
+  profile: string[];
+  listen?: string;
+  token?: string;
+}>();
+const companion = new CompanionManager();
+const server = createBetterMobileServer({
+  profiles: new Set(options.profile),
+  companion,
+});
+let httpServer: HttpServer | undefined;
+
+const shutdown = async (): Promise<void> => {
+  await server.close();
+  if (httpServer) {
+    await new Promise<void>((resolve) => httpServer?.close(() => resolve()));
+  }
+  process.exit(0);
+};
+
+process.once("SIGINT", () => void shutdown());
+process.once("SIGTERM", () => void shutdown());
+
+if (options.listen !== undefined) {
+  const port = Number(options.listen);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`Invalid listen port: ${options.listen}`);
+  }
+  ({ httpServer } = await startStreamableHttpServer(server, {
+    port,
+    token: options.token,
+  }));
+  console.error(`Better Mobile MCP listening on http://127.0.0.1:${port}/mcp`);
+} else {
+  await server.connect(new StdioServerTransport());
+}
