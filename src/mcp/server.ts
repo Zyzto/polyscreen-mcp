@@ -55,7 +55,7 @@ export function createPolyScreenServer(
   const profiles = options.profiles ?? new Set(["core"]);
   const server = new McpServer({
     name: "polyscreen-mcp",
-    version: "0.2.0",
+    version: "0.2.5",
   });
 
   server.registerResource(

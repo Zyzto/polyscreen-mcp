@@ -5,6 +5,7 @@ import {
   assert,
   connectIntegrationClient,
   requiredEnvironment,
+  runWithDisplay,
   waitForNode,
 } from "./integration-client.mjs";
 
@@ -65,19 +66,17 @@ try {
     path: fixtureApk,
     replace: true,
   });
-  await call("mobile_input_key", {
-    serial,
-    displayId,
-    key: "KEYCODE_WAKEUP",
-    source: "keyboard",
-    action: "press",
-  });
-  const launch = await call("mobile_app_launch", {
-    serial,
-    packageName,
-    displayId,
-    activity,
-  });
+  const { result: launch } = await runWithDisplay(
+    call,
+    { serial, displayId },
+    async () =>
+      await call("mobile_app_launch", {
+        serial,
+        packageName,
+        displayId,
+        activity,
+      }),
+  );
   assert(
     launch.data.observedFocusedDisplayId === displayId,
     `Fixture focus was not observed on display ${displayId}`,

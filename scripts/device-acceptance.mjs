@@ -2,6 +2,7 @@ import {
   assert,
   connectIntegrationClient,
   requiredEnvironment,
+  runWithDisplay,
 } from "./integration-client.mjs";
 
 const serial = requiredEnvironment("POLYSCREEN_DEVICE");
@@ -43,18 +44,20 @@ try {
     inputDisplayTargeting: inspection.capabilities.input.displayTargeting,
   };
 
-  const listed = await call("mobile_displays_list", { serial });
   summary.displays = [];
   summary.captures = [];
   summary.recordings = [];
   for (const displayId of displayIds) {
-    const display = listed.displays.find(
-      (candidate) => candidate.logicalId === displayId,
-    );
-    assert(display, `Logical display is unavailable: ${displayId}`);
-    assert(
-      display.physicalId,
-      `Logical display lacks physical correlation: ${displayId}`,
+    const displayOpts = { serial, displayId, requirePhysical: true };
+    const { display, result: capture } = await runWithDisplay(
+      call,
+      displayOpts,
+      async () =>
+        await call("mobile_screen_capture", {
+          serial,
+          displayId,
+          saveArtifact: true,
+        }),
     );
     summary.displays.push({
       logicalId: display.logicalId,
@@ -62,12 +65,6 @@ try {
       width: display.width,
       height: display.height,
       state: display.state,
-    });
-
-    const capture = await call("mobile_screen_capture", {
-      serial,
-      displayId,
-      saveArtifact: true,
     });
     assert(capture.sizeBytes > 8, `Display ${displayId} capture was empty`);
     assert(capture.artifactUri, `Display ${displayId} capture was not saved`);
@@ -83,11 +80,16 @@ try {
     });
 
     if (shouldRecord) {
-      const recording = await call("mobile_screen_record", {
-        serial,
-        displayId,
-        durationSeconds: 1,
-      });
+      const { result: recording } = await runWithDisplay(
+        call,
+        displayOpts,
+        async () =>
+          await call("mobile_screen_record", {
+            serial,
+            displayId,
+            durationSeconds: 1,
+          }),
+      );
       assert(
         recording.sizeBytes > 0,
         `Display ${displayId} recording was empty`,

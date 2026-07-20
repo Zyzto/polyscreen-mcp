@@ -214,6 +214,8 @@ Device integration checks are intentionally separate from deterministic unit tes
 
 Never silently select the first connected device: pass the exact serial returned by `mobile_devices_list`.
 
+Occasional `Logical display N is not available` flakes on multi-display handhelds usually clear after re-listing displays, tapping the target display (or waking it), and retrying. The device acceptance scripts recover via `runWithDisplay`.
+
 ### Repeatable device acceptance
 
 The generic suite is read-mostly. It captures requested displays and can optionally record, inspect one package, and exercise an already-installed companion:
