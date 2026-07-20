@@ -23,10 +23,7 @@ describe("Streamable HTTP security", () => {
       await mcp.close();
       await closeHttpServer(httpServer);
     });
-    const address = httpServer.address();
-    if (typeof address === "string" || address === null)
-      throw new Error("Expected TCP address");
-    const url = `http://127.0.0.1:${address.port}/mcp`;
+    const url = serverUrl(httpServer);
 
     const unauthorized = await fetch(url);
     expect(unauthorized.status).toBe(401);

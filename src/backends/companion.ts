@@ -4,6 +4,7 @@ import { Socket } from "node:net";
 
 import { AdbRunner } from "../android/adb-runner.js";
 import { DeviceQueue } from "../android/device-queue.js";
+import { abortableDelay } from "../utils/abortable-delay.js";
 
 const TEST_PACKAGE = "dev.polyscreen.companion.test";
 const TARGET_PACKAGE = "dev.polyscreen.companion";
@@ -345,15 +346,20 @@ async function connectAndAuthenticate(
   hello: Record<string, unknown>;
 }> {
   const deadline = Date.now() + 10_000;
+  let lastConnectionError: unknown;
   while (Date.now() < deadline) {
     if (signal?.aborted) throw signal.reason;
     let connection: CompanionConnection | undefined;
     try {
       const socket = await new Promise<Socket>((resolve, reject) => {
         const socket = new Socket();
-        socket.once("error", reject);
+        const onError = (error: Error): void => {
+          socket.destroy();
+          reject(error);
+        };
+        socket.once("error", onError);
         socket.connect(port, "127.0.0.1", () => {
-          socket.removeListener("error", reject);
+          socket.removeListener("error", onError);
           resolve(socket);
         });
       });
@@ -364,29 +370,16 @@ async function connectAndAuthenticate(
         signal,
       );
       return { connection, hello };
-    } catch {
+    } catch (error) {
       connection?.close();
       if (signal?.aborted) throw signal.reason;
+      if (connection) throw error;
+      lastConnectionError = error;
       await abortableDelay(150, signal);
     }
   }
   throw new Error(
     "Timed out connecting and authenticating with the instrumentation companion",
+    { cause: lastConnectionError },
   );
-}
-
-async function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted();
-  await new Promise<void>((resolve, reject) => {
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      reject(signal?.reason ?? new Error("Operation aborted"));
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
 }

@@ -9,6 +9,7 @@ import { AndroidController } from "../android/android-controller.js";
 import { findUiNodes, parseUiNodes } from "../android/ui.js";
 import { ArtifactStore } from "../artifacts/store.js";
 import { CompanionManager } from "../backends/companion.js";
+import { abortableDelay } from "../utils/abortable-delay.js";
 import {
   displayIdSchema,
   envelopeOutputSchema,
@@ -54,7 +55,7 @@ export function createPolyScreenServer(
   const profiles = options.profiles ?? new Set(["core"]);
   const server = new McpServer({
     name: "polyscreen-mcp",
-    version: "0.1.0",
+    version: "0.2.0",
   });
 
   server.registerResource(
@@ -1014,20 +1015,4 @@ export function createPolyScreenServer(
   };
 
   return server;
-}
-
-async function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted();
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      reject(signal?.reason ?? new Error("Operation aborted"));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
 }

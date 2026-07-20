@@ -35,14 +35,6 @@ const { client, call } = await connectIntegrationClient(
 const summary = { serial, displayId, packageName };
 let cleanupRequired = true;
 
-const installFixture = async () => {
-  await call("mobile_app_install", {
-    serial,
-    path: fixtureApk,
-    replace: true,
-  });
-};
-
 const findFixtureNode = async (resourceName) =>
   await waitForNode(call, {
     serial,
@@ -68,7 +60,11 @@ try {
     `Thor is not online: ${serial}`,
   );
 
-  await installFixture();
+  await call("mobile_app_install", {
+    serial,
+    path: fixtureApk,
+    replace: true,
+  });
   await call("mobile_input_key", {
     serial,
     displayId,

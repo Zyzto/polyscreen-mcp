@@ -5,7 +5,6 @@ import type { Server as HttpServer } from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { Command } from "commander";
 
-import { CompanionManager } from "./backends/companion.js";
 import { startStreamableHttpServer } from "./mcp/http.js";
 import { createPolyScreenServer } from "./mcp/server.js";
 
@@ -32,10 +31,8 @@ const options = program.opts<{
   listen?: string;
   token?: string;
 }>();
-const companion = new CompanionManager();
 const server = createPolyScreenServer({
   profiles: new Set(options.profile),
-  companion,
 });
 let httpServer: HttpServer | undefined;
 
