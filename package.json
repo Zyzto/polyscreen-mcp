@@ -21,7 +21,7 @@
     "gamepad"
   ],
   "bin": {
-    "polyscreen-mcp": "./dist/cli.js"
+    "polyscreen-mcp": "dist/cli.js"
   },
   "exports": {
     ".": "./dist/index.js"
