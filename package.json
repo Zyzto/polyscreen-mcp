@@ -1,17 +1,17 @@
 {
-  "name": "better-mobile-mcp",
+  "name": "polyscreen-mcp",
   "version": "0.1.0",
   "description": "Capability-driven Android automation MCP server with first-class multi-display and gamepad support",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Zyzto/better-mobile-mcp.git"
+    "url": "git+https://github.com/Zyzto/polyscreen-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/Zyzto/better-mobile-mcp/issues"
+    "url": "https://github.com/Zyzto/polyscreen-mcp/issues"
   },
-  "homepage": "https://github.com/Zyzto/better-mobile-mcp#readme",
+  "homepage": "https://github.com/Zyzto/polyscreen-mcp#readme",
   "keywords": [
     "mcp",
     "android",
@@ -21,7 +21,7 @@
     "gamepad"
   ],
   "bin": {
-    "better-mobile-mcp": "./dist/cli.js"
+    "polyscreen-mcp": "./dist/cli.js"
   },
   "exports": {
     ".": "./dist/index.js"

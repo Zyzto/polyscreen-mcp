@@ -214,7 +214,7 @@ export class AndroidController {
         "Portable uiautomator cannot select a non-default display; enable the instrumentation backend",
       );
     }
-    const remotePath = `/data/local/tmp/better-mobile-${randomUUID()}.xml`;
+    const remotePath = `/data/local/tmp/polyscreen-${randomUUID()}.xml`;
     try {
       const dump = await this.adb.run(
         ["shell", "uiautomator", "dump", remotePath],

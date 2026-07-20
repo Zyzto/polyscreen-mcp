@@ -1,4 +1,4 @@
-package dev.bettermobile.companion;
+package dev.polyscreen.companion;
 
 import android.app.Activity;
 import android.app.Instrumentation;
@@ -47,7 +47,7 @@ public final class BridgeInstrumentation extends Instrumentation {
         if (token.length() < 16) {
             throw new IllegalArgumentException("A random token of at least 16 characters is required");
         }
-        if (!socketName.matches("better_mobile_mcp_[A-Za-z0-9_-]{16,}")) {
+        if (!socketName.matches("polyscreen_mcp_[A-Za-z0-9_-]{16,}")) {
             throw new IllegalArgumentException("A random companion socket name is required");
         }
         start();

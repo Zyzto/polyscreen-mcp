@@ -4,5 +4,5 @@ companion/local.properties
 test/
 src/
 .github/
-.better-mobile-mcp/
+.polyscreen-mcp/
 *.log

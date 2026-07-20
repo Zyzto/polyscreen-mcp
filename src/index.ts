@@ -12,5 +12,5 @@ export type {
 } from "./android/types.js";
 export { startStreamableHttpServer } from "./mcp/http.js";
 export type { HttpServerOptions } from "./mcp/http.js";
-export { createBetterMobileServer } from "./mcp/server.js";
-export type { BetterMobileServerOptions } from "./mcp/server.js";
+export { createPolyScreenServer } from "./mcp/server.js";
+export type { PolyScreenServerOptions } from "./mcp/server.js";

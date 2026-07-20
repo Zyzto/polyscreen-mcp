@@ -3,7 +3,7 @@ dist/
 coverage/
 .DS_Store
 *.log
-.better-mobile-mcp/
+.polyscreen-mcp/
 companion/.gradle/
 companion/**/build/
 local.properties

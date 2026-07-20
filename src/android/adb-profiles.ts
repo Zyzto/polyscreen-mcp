@@ -27,7 +27,7 @@ export class AdbProfiles {
     this.hostRoot = resolve(options.hostRoot ?? process.cwd());
     this.artifactRoot = resolve(
       options.artifactRoot ??
-        join(this.hostRoot, ".better-mobile-mcp", "artifacts"),
+        join(this.hostRoot, ".polyscreen-mcp", "artifacts"),
     );
   }
 

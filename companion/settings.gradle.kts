@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "better-mobile-mcp-companion"
+rootProject.name = "polyscreen-mcp-companion"
 include(":app", ":fixture")

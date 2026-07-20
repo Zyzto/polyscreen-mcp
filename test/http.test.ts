@@ -4,7 +4,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { startStreamableHttpServer } from "../src/mcp/http.js";
-import { createBetterMobileServer } from "../src/mcp/server.js";
+import { createPolyScreenServer } from "../src/mcp/server.js";
 
 describe("Streamable HTTP security", () => {
   const cleanups: Array<() => Promise<void>> = [];
@@ -14,7 +14,7 @@ describe("Streamable HTTP security", () => {
   });
 
   it("rejects untrusted origins and missing bearer tokens", async () => {
-    const mcp = createBetterMobileServer();
+    const mcp = createPolyScreenServer();
     const { httpServer } = await startStreamableHttpServer(mcp, {
       port: 0,
       token: "test-token",
@@ -41,7 +41,7 @@ describe("Streamable HTTP security", () => {
   });
 
   it("initializes an authenticated MCP client and calls tools", async () => {
-    const mcp = createBetterMobileServer();
+    const mcp = createPolyScreenServer();
     const { httpServer } = await startStreamableHttpServer(mcp, {
       port: 0,
       token: "test-token",
@@ -69,7 +69,7 @@ describe("Streamable HTTP security", () => {
   });
 
   it("closes an active SSE session before HTTP shutdown", async () => {
-    const mcp = createBetterMobileServer();
+    const mcp = createPolyScreenServer();
     const { httpServer } = await startStreamableHttpServer(mcp, {
       port: 0,
       token: "test-token",

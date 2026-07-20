@@ -4,20 +4,20 @@ import {
   requiredEnvironment,
 } from "./integration-client.mjs";
 
-const serial = requiredEnvironment("BETTER_MOBILE_DEVICE");
-const displayIds = (process.env.BETTER_MOBILE_DISPLAY_IDS ?? "0")
+const serial = requiredEnvironment("POLYSCREEN_DEVICE");
+const displayIds = (process.env.POLYSCREEN_DISPLAY_IDS ?? "0")
   .split(",")
   .map((value) => Number(value.trim()));
 if (
   displayIds.length === 0 ||
   displayIds.some((value) => !Number.isInteger(value) || value < 0)
 ) {
-  throw new Error("BETTER_MOBILE_DISPLAY_IDS must be comma-separated integers");
+  throw new Error("POLYSCREEN_DISPLAY_IDS must be comma-separated integers");
 }
 
-const shouldRecord = process.env.BETTER_MOBILE_RECORD === "1";
-const shouldTestCompanion = process.env.BETTER_MOBILE_COMPANION === "1";
-const packageName = process.env.BETTER_MOBILE_TEST_PACKAGE?.trim();
+const shouldRecord = process.env.POLYSCREEN_RECORD === "1";
+const shouldTestCompanion = process.env.POLYSCREEN_COMPANION === "1";
+const packageName = process.env.POLYSCREEN_TEST_PACKAGE?.trim();
 const { client, call } = await connectIntegrationClient("device-acceptance");
 let companionStarted = false;
 const summary = { serial, displayIds };

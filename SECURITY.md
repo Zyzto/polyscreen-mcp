@@ -8,7 +8,7 @@ Include the affected version, Android/ADB versions, device build fingerprint, re
 
 ## Trust model
 
-Better Mobile MCP controls devices already authorized to the host's ADB server. Anyone who can invoke mutation tools can interact with those devices within the advertised tool scopes.
+PolyScreen MCP controls devices already authorized to the host's ADB server. Anyone who can invoke mutation tools can interact with those devices within the advertised tool scopes.
 
 Recommended deployment:
 

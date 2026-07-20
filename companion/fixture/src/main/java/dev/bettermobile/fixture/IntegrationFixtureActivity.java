@@ -1,4 +1,4 @@
-package dev.bettermobile.fixture;
+package dev.polyscreen.fixture;
 
 import android.app.Activity;
 import android.graphics.Color;
@@ -25,7 +25,7 @@ public final class IntegrationFixtureActivity extends Activity {
         root.setPadding(dp(24), dp(12), dp(24), dp(12));
         root.setBackgroundColor(Color.rgb(24, 27, 33));
 
-        TextView title = text("Better Mobile MCP integration fixture", 24);
+        TextView title = text("PolyScreen MCP integration fixture", 24);
         root.addView(title, matchWrap());
 
         status = text("ready", 18);

@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.bettermobile.fixture"
+    namespace = "dev.polyscreen.fixture"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.bettermobile.fixture"
+        applicationId = "dev.polyscreen.fixture"
         minSdk = 30
         targetSdk = 36
         versionCode = 1

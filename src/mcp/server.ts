@@ -17,7 +17,7 @@ import {
   serialSchema,
 } from "./schemas.js";
 
-export interface BetterMobileServerOptions {
+export interface PolyScreenServerOptions {
   controller?: AndroidController;
   companion?: CompanionManager;
   adbProfiles?: AdbProfiles;
@@ -43,8 +43,8 @@ const readAnnotations = {
   openWorldHint: false,
 };
 
-export function createBetterMobileServer(
-  options: BetterMobileServerOptions = {},
+export function createPolyScreenServer(
+  options: PolyScreenServerOptions = {},
 ): McpServer {
   const controller = options.controller ?? new AndroidController();
   const companion = options.companion ?? new CompanionManager(controller.adb);
@@ -53,7 +53,7 @@ export function createBetterMobileServer(
     options.artifacts ?? new ArtifactStore(adbProfiles.artifactRoot);
   const profiles = options.profiles ?? new Set(["core"]);
   const server = new McpServer({
-    name: "better-mobile-mcp",
+    name: "polyscreen-mcp",
     version: "0.1.0",
   });
 
@@ -70,7 +70,7 @@ export function createBetterMobileServer(
       }),
     }),
     {
-      title: "Better Mobile MCP artifacts",
+      title: "PolyScreen MCP artifacts",
       description:
         "Screenshots, recordings, logs, traces, and pulled files retained locally.",
     },

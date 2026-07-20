@@ -7,10 +7,10 @@ import { Command } from "commander";
 
 import { CompanionManager } from "./backends/companion.js";
 import { startStreamableHttpServer } from "./mcp/http.js";
-import { createBetterMobileServer } from "./mcp/server.js";
+import { createPolyScreenServer } from "./mcp/server.js";
 
 const program = new Command()
-  .name("better-mobile-mcp")
+  .name("polyscreen-mcp")
   .description("Capability-driven Android automation MCP server")
   .option(
     "-p, --profile <profile...>",
@@ -33,7 +33,7 @@ const options = program.opts<{
   token?: string;
 }>();
 const companion = new CompanionManager();
-const server = createBetterMobileServer({
+const server = createPolyScreenServer({
   profiles: new Set(options.profile),
   companion,
 });
@@ -59,7 +59,7 @@ if (options.listen !== undefined) {
     port,
     token: options.token,
   }));
-  console.error(`Better Mobile MCP listening on http://127.0.0.1:${port}/mcp`);
+  console.error(`PolyScreen MCP listening on http://127.0.0.1:${port}/mcp`);
 } else {
   await server.connect(new StdioServerTransport());
 }

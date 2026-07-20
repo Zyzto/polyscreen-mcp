@@ -16,7 +16,7 @@ describe("ArtifactStore", () => {
   });
 
   it("stores, lists, and reads binary artifacts", async () => {
-    const root = await mkdtemp(join(tmpdir(), "better-mobile-artifacts-"));
+    const root = await mkdtemp(join(tmpdir(), "polyscreen-artifacts-"));
     roots.push(root);
     const store = new ArtifactStore(root);
 
@@ -31,7 +31,7 @@ describe("ArtifactStore", () => {
   });
 
   it("rejects path traversal", async () => {
-    const root = await mkdtemp(join(tmpdir(), "better-mobile-artifacts-"));
+    const root = await mkdtemp(join(tmpdir(), "polyscreen-artifacts-"));
     roots.push(root);
     const store = new ArtifactStore(root);
     await expect(store.read("../secret")).rejects.toThrow(

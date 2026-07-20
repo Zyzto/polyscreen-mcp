@@ -1,4 +1,4 @@
-# Better Mobile MCP
+# PolyScreen MCP
 
 An Android-first Model Context Protocol server built for reliable automation on real devices, including multi-display handhelds, gamepads, emulators, and test labs.
 
@@ -15,7 +15,7 @@ Existing mobile MCP servers commonly:
 - return prose that agents must parse;
 - expose unrestricted shell commands as ordinary tools.
 
-Better Mobile MCP keeps those boundaries explicit and returns structured evidence for every operation.
+PolyScreen MCP keeps those boundaries explicit and returns structured evidence for every operation.
 
 ## Requirements
 
@@ -38,10 +38,10 @@ Run through an MCP client:
 ```json
 {
   "mcpServers": {
-    "better-mobile": {
+    "polyscreen": {
       "command": "node",
       "args": [
-        "/absolute/path/to/better-mobile-mcp/dist/cli.js",
+        "/absolute/path/to/polyscreen-mcp/dist/cli.js",
         "--profile",
         "core",
         "diagnostics",
@@ -57,9 +57,9 @@ After publication, the intended command is:
 ```json
 {
   "mcpServers": {
-    "better-mobile": {
+    "polyscreen": {
       "command": "npx",
-      "args": ["-y", "better-mobile-mcp@latest"]
+      "args": ["-y", "polyscreen-mcp@latest"]
     }
   }
 }
@@ -68,7 +68,7 @@ After publication, the intended command is:
 For local Streamable HTTP:
 
 ```bash
-better-mobile-mcp --listen 3300 --token "replace-with-a-secret"
+polyscreen-mcp --listen 3300 --token "replace-with-a-secret"
 ```
 
 The endpoint is `http://127.0.0.1:3300/mcp`. HTTP always binds to loopback, validates `Host` and `Origin`, and optionally requires the configured bearer token. Stdio remains the default.
@@ -219,24 +219,24 @@ Never silently select the first connected device: pass the exact serial returned
 The generic suite is read-mostly. It captures requested displays and can optionally record, inspect one package, and exercise an already-installed companion:
 
 ```bash
-BETTER_MOBILE_DEVICE=10.0.0.174:5555 \
-BETTER_MOBILE_DISPLAY_IDS=0,4 \
-BETTER_MOBILE_RECORD=1 \
-BETTER_MOBILE_TEST_PACKAGE=com.wajiha \
-BETTER_MOBILE_COMPANION=1 \
+POLYSCREEN_DEVICE=10.0.0.174:5555 \
+POLYSCREEN_DISPLAY_IDS=0,4 \
+POLYSCREEN_RECORD=1 \
+POLYSCREEN_TEST_PACKAGE=com.wajiha \
+POLYSCREEN_COMPANION=1 \
 pnpm test:device
 ```
 
 The destructive Thor suite uses a dedicated integration-fixture APK, separate from the production companion. It installs and launches the fixture, verifies tap/swipe/drag/text input, grants and revokes CAMERA, force-stops the fixture, and uninstalls it during cleanup:
 
 ```bash
-BETTER_MOBILE_DEVICE=10.0.0.174:5555 \
-BETTER_MOBILE_DISPLAY_ID=0 \
-BETTER_MOBILE_ALLOW_DESTRUCTIVE=1 \
+POLYSCREEN_DEVICE=10.0.0.174:5555 \
+POLYSCREEN_DISPLAY_ID=0 \
+POLYSCREEN_ALLOW_DESTRUCTIVE=1 \
 pnpm test:thor:destructive
 ```
 
-The destructive suite refuses to run without the acknowledgement variable and never chooses a device serial implicitly. Override `BETTER_MOBILE_FIXTURE_APK` when testing an externally built fixture.
+The destructive suite refuses to run without the acknowledgement variable and never chooses a device serial implicitly. Override `POLYSCREEN_FIXTURE_APK` when testing an externally built fixture.
 
 ## License
 

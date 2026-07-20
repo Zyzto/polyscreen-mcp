@@ -8,23 +8,23 @@ import {
   waitForNode,
 } from "./integration-client.mjs";
 
-if (process.env.BETTER_MOBILE_ALLOW_DESTRUCTIVE !== "1") {
+if (process.env.POLYSCREEN_ALLOW_DESTRUCTIVE !== "1") {
   throw new Error(
-    "Set BETTER_MOBILE_ALLOW_DESTRUCTIVE=1 to acknowledge install, permission, force-stop, and uninstall tests",
+    "Set POLYSCREEN_ALLOW_DESTRUCTIVE=1 to acknowledge install, permission, force-stop, and uninstall tests",
   );
 }
 
-const serial = requiredEnvironment("BETTER_MOBILE_DEVICE");
-const displayId = Number(process.env.BETTER_MOBILE_DISPLAY_ID ?? "0");
+const serial = requiredEnvironment("POLYSCREEN_DEVICE");
+const displayId = Number(process.env.POLYSCREEN_DISPLAY_ID ?? "0");
 if (!Number.isInteger(displayId) || displayId < 0) {
-  throw new Error("BETTER_MOBILE_DISPLAY_ID must be a non-negative integer");
+  throw new Error("POLYSCREEN_DISPLAY_ID must be a non-negative integer");
 }
 
-const packageName = "dev.bettermobile.fixture";
-const activity = "dev.bettermobile.fixture.IntegrationFixtureActivity";
+const packageName = "dev.polyscreen.fixture";
+const activity = "dev.polyscreen.fixture.IntegrationFixtureActivity";
 const cameraPermission = "android.permission.CAMERA";
 const fixtureApk = resolve(
-  process.env.BETTER_MOBILE_FIXTURE_APK ??
+  process.env.POLYSCREEN_FIXTURE_APK ??
     "companion/fixture/build/outputs/apk/debug/fixture-debug.apk",
 );
 await access(fixtureApk);

@@ -3,16 +3,16 @@ plugins {
 }
 
 android {
-    namespace = "dev.bettermobile.companion"
+    namespace = "dev.polyscreen.companion"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.bettermobile.companion"
+        applicationId = "dev.polyscreen.companion"
         minSdk = 30
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
-        testInstrumentationRunner = "dev.bettermobile.companion.BridgeInstrumentation"
+        testInstrumentationRunner = "dev.polyscreen.companion.BridgeInstrumentation"
     }
 
     compileOptions {

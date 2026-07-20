@@ -2,6 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
         android:allowBackup="false"
-        android:label="Better Mobile MCP Companion"
+        android:label="PolyScreen MCP Companion"
         android:supportsRtl="true" />
 </manifest>

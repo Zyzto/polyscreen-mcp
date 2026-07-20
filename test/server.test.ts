@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createBetterMobileServer } from "../src/mcp/server.js";
+import { createPolyScreenServer } from "../src/mcp/server.js";
 
 describe("MCP server contract", () => {
   const cleanups: Array<() => Promise<void>> = [];
@@ -12,7 +12,7 @@ describe("MCP server contract", () => {
   });
 
   it("advertises a compact core and enables optional profiles explicitly", async () => {
-    const server = createBetterMobileServer({
+    const server = createPolyScreenServer({
       profiles: new Set(["core", "diagnostics", "apps"]),
     });
     const client = new Client({ name: "test-client", version: "1.0.0" });

@@ -5,9 +5,9 @@ import { Socket } from "node:net";
 import { AdbRunner } from "../android/adb-runner.js";
 import { DeviceQueue } from "../android/device-queue.js";
 
-const TEST_PACKAGE = "dev.bettermobile.companion.test";
-const TARGET_PACKAGE = "dev.bettermobile.companion";
-const RUNNER = "dev.bettermobile.companion.BridgeInstrumentation";
+const TEST_PACKAGE = "dev.polyscreen.companion.test";
+const TARGET_PACKAGE = "dev.polyscreen.companion";
+const RUNNER = "dev.polyscreen.companion.BridgeInstrumentation";
 const MAX_FRAME_BYTES = 1024 * 1024;
 
 interface PendingRequest {
@@ -175,7 +175,7 @@ export class CompanionManager {
       throw new Error(`Companion is already active on ${serial}`);
     await this.forceStop(serial);
     const token = randomBytes(24).toString("base64url");
-    const socketName = `better_mobile_mcp_${randomBytes(18).toString("base64url")}`;
+    const socketName = `polyscreen_mcp_${randomBytes(18).toString("base64url")}`;
     const portText = await this.adb.text(
       ["forward", "tcp:0", `localabstract:${socketName}`],
       { serial, signal },
