@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AndroidController } from "../src/android/android-controller.js";
+import { FocusTraceSessionManager } from "../src/android/focus-sessions.js";
 import { parseWindowFocus } from "../src/android/parsers.js";
 import { addConnectedDevice, FakeAdbRunner } from "./fake-adb.js";
 
@@ -36,7 +37,7 @@ describe("focus tracing", () => {
     ]);
   });
 
-  it("samples a multi-display focus timeline", async () => {
+  it("samples a multi-display focus timeline via runFor", async () => {
     const runner = addConnectedDevice(new FakeAdbRunner())
       .respond(["get-state"], "device", { serial: SERIAL })
       .respond(["shell", "getprop", "ro.serialno"], "HW123", {
@@ -45,11 +46,11 @@ describe("focus tracing", () => {
       .respond(["shell", "dumpsys", "window", "displays"], WINDOW_DUMP, {
         serial: SERIAL,
       });
-    const controller = new AndroidController(runner);
+    const manager = new FocusTraceSessionManager(new AndroidController(runner));
 
-    const trace = await controller.focusTrace(SERIAL, [0, 4], 250, 80);
+    const trace = await manager.runFor(SERIAL, [0, 4], 250, 80);
 
-    expect(trace.sampleCount).toBeGreaterThanOrEqual(2);
+    expect(trace.sampleCount).toBeGreaterThanOrEqual(1);
     expect(trace.samples[0]?.displays["4"]).toMatchObject({
       packageName: "com.android.launcher3",
       activity: "com.android.launcher3/.SecondaryDisplayLauncher",

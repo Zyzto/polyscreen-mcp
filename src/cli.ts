@@ -7,6 +7,7 @@ import { Command } from "commander";
 
 import { startStreamableHttpServer } from "./mcp/http.js";
 import { createPolyScreenServer } from "./mcp/server.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 const program = new Command()
   .name("polyscreen-mcp")
@@ -56,7 +57,14 @@ if (options.listen !== undefined) {
     port,
     token: options.token,
   }));
-  console.error(`PolyScreen MCP listening on http://127.0.0.1:${port}/mcp`);
+  console.error(
+    `PolyScreen MCP ${PACKAGE_VERSION} listening on http://127.0.0.1:${port}/mcp (${server.listRegisteredTools().length} tools)`,
+  );
+  server.notifyToolListChanged();
 } else {
   await server.connect(new StdioServerTransport());
+  console.error(
+    `[polyscreen-mcp] ${PACKAGE_VERSION} connected over stdio with ${server.listRegisteredTools().length} tools`,
+  );
+  server.notifyToolListChanged();
 }

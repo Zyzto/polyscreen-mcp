@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 
-import { abortableDelay } from "../utils/abortable-delay.js";
 import {
   AdbCommandError,
   AdbRunner,
@@ -56,25 +55,33 @@ export class AndroidController {
         }
         try {
           const [state, hardwareSerial] = await Promise.all([
-            this.adb.text(["get-state"], {
-              serial: device.serial,
-              signal,
-              timeoutMs: 3_000,
-            }),
+            this.adb
+              .text(["get-state"], {
+                serial: device.serial,
+                signal,
+                timeoutMs: 3_000,
+              })
+              .then((value) => value.trim())
+              .catch((error: unknown) => {
+                if (signal?.aborted) throw signal.reason ?? error;
+                return "";
+              }),
             this.adb
               .text(["shell", "getprop", "ro.serialno"], {
                 serial: device.serial,
                 signal,
                 timeoutMs: 3_000,
               })
-              .catch(() => ""),
+              .then((value) => value.trim())
+              .catch((error: unknown) => {
+                if (signal?.aborted) throw signal.reason ?? error;
+                return "";
+              }),
           ]);
           return {
             ...device,
-            reachable: state.trim() === "device",
-            ...(hardwareSerial.trim()
-              ? { hardwareSerial: hardwareSerial.trim() }
-              : {}),
+            reachable: state === "device",
+            ...(hardwareSerial ? { hardwareSerial } : {}),
           };
         } catch {
           if (signal?.aborted) throw signal.reason;
@@ -83,21 +90,27 @@ export class AndroidController {
       }),
     );
 
+    // Only alias devices that share a hardware serial. Never group on empty
+    // product/model/device metadata (that collapses unrelated offline entries).
     const groups = new Map<string, AndroidDevice[]>();
     for (const device of probed) {
-      const key =
-        device.hardwareSerial ||
-        `${device.product ?? ""}|${device.model ?? ""}|${device.device ?? ""}`;
-      const group = groups.get(key) ?? [];
+      if (!device.hardwareSerial) {
+        device.preferred = device.reachable === true;
+        device.preferredSerial = device.serial;
+        device.aliases = [];
+        continue;
+      }
+      const group = groups.get(device.hardwareSerial) ?? [];
       group.push(device);
-      groups.set(key, group);
+      groups.set(device.hardwareSerial, group);
     }
 
     for (const group of groups.values()) {
       if (group.length < 2) {
         for (const device of group) {
-          device.preferred = device.reachable !== false;
+          device.preferred = device.reachable === true;
           device.preferredSerial = device.serial;
+          device.aliases = [];
         }
         continue;
       }
@@ -107,10 +120,16 @@ export class AndroidController {
           Number(isTcpSerial(b.serial)) - Number(isTcpSerial(a.serial)) ||
           a.serial.localeCompare(b.serial),
       );
-      const preferred = ranked[0]!;
+      const preferred = ranked.find((device) => device.reachable) ?? ranked[0]!;
       for (const device of group) {
         device.preferredSerial = preferred.serial;
-        device.preferred = device.serial === preferred.serial;
+        // Never mark an unreachable twin as preferred — agents should reconnect.
+        device.preferred =
+          device.serial === preferred.serial && device.reachable === true;
+        device.aliases = group
+          .map((candidate) => candidate.serial)
+          .filter((serial) => serial !== device.serial)
+          .sort();
       }
     }
 
@@ -132,6 +151,13 @@ export class AndroidController {
     if (!device) throw new Error(`Device is not connected: ${serial}`);
     if (device.state !== "device")
       throw new Error(`Device ${serial} is ${device.state}`);
+    if (device.reachable === false) {
+      const hint =
+        device.preferredSerial && device.preferredSerial !== serial
+          ? `; try preferredSerial ${device.preferredSerial}`
+          : "";
+      throw new Error(`Device ${serial} is listed but not reachable${hint}`);
+    }
     return device;
   }
 
@@ -343,73 +369,6 @@ export class AndroidController {
     };
   }
 
-  async focusTrace(
-    serial: string,
-    displayIds: number[],
-    durationMs: number,
-    sampleIntervalMs = 100,
-    signal?: AbortSignal,
-  ): Promise<{
-    serial: string;
-    displayIds: number[];
-    durationMs: number;
-    sampleIntervalMs: number;
-    sampleCount: number;
-    samples: Array<{
-      tMs: number;
-      displays: Record<
-        string,
-        {
-          packageName?: string;
-          activity?: string;
-          taskId?: number;
-          focusedWindow?: string;
-        }
-      >;
-    }>;
-  }> {
-    await this.requireDevice(serial, signal);
-    if (displayIds.length === 0) {
-      throw new Error("focusTrace requires at least one displayId");
-    }
-    const unique = [...new Set(displayIds)];
-    const interval = Math.max(50, Math.min(5_000, sampleIntervalMs));
-    const deadline = Date.now() + Math.max(100, durationMs);
-    const startedAt = Date.now();
-    const samples: Array<{
-      tMs: number;
-      displays: Record<
-        string,
-        {
-          packageName?: string;
-          activity?: string;
-          taskId?: number;
-          focusedWindow?: string;
-        }
-      >;
-    }> = [];
-
-    while (true) {
-      signal?.throwIfAborted();
-      const tMs = Date.now() - startedAt;
-      const focus = await this.sampleFocus(serial, unique, signal);
-      samples.push({ tMs, displays: focus });
-      if (Date.now() >= deadline) break;
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      await abortableDelay(Math.min(interval, remaining), signal);
-    }
-
-    return {
-      serial,
-      displayIds: unique,
-      durationMs: Date.now() - startedAt,
-      sampleIntervalMs: interval,
-      sampleCount: samples.length,
-      samples,
-    };
-  }
-
   async sampleFocus(
     serial: string,
     displayIds: number[],
@@ -427,7 +386,7 @@ export class AndroidController {
   > {
     const output = await this.adb.text(
       ["shell", "dumpsys", "window", "displays"],
-      { serial, signal, timeoutMs: 15_000, maxOutputBytes: 4 * 1024 * 1024 },
+      { serial, signal, timeoutMs: 12_000, maxOutputBytes: 2 * 1024 * 1024 },
     );
     const wanted = new Set(displayIds);
     const result: Record<
@@ -714,12 +673,14 @@ export class AndroidController {
     displayId: number,
     activity?: string,
     signal?: AbortSignal,
+    userId: number | "current" = "current",
   ): Promise<
     OperationEnvelope<{
       packageName: string;
       component: string;
       requestedDisplayId: number;
       observedFocusedDisplayId?: number;
+      userId: number | "current";
       output: string;
     }>
   > {
@@ -735,6 +696,8 @@ export class AndroidController {
           "am",
           "start",
           "-W",
+          "--user",
+          String(userId),
           "--display",
           String(displayId),
           "-n",
@@ -764,6 +727,7 @@ export class AndroidController {
         packageName,
         component,
         requestedDisplayId: displayId,
+        userId,
         ...(observedDisplay
           ? { observedFocusedDisplayId: observedDisplay.logicalId }
           : {}),

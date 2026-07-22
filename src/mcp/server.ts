@@ -6,16 +6,28 @@ import { z } from "zod";
 
 import { AdbProfiles } from "../android/adb-profiles.js";
 import { AndroidController } from "../android/android-controller.js";
+import {
+  DEFAULT_FOCUS_INTERVAL_MS,
+  DEFAULT_FOCUS_MAX_SAMPLES,
+  FocusTraceSessionManager,
+  type StoppedFocusTrace,
+} from "../android/focus-sessions.js";
 import { LogcatSessionManager } from "../android/logcat-sessions.js";
 import {
   analyzeRecording,
   resolveRecordingPath,
 } from "../android/recording-analyze.js";
 import { RecordingSessionManager } from "../android/record-sessions.js";
+import { SystemOps } from "../android/system-ops.js";
 import { findUiNodes, parseUiNodes } from "../android/ui.js";
 import { ArtifactStore } from "../artifacts/store.js";
 import { CompanionManager } from "../backends/companion.js";
 import { abortableDelay } from "../utils/abortable-delay.js";
+import {
+  CORE_DETECTIVE_TOOLS,
+  PACKAGE_NAME,
+  PACKAGE_VERSION,
+} from "../version.js";
 import {
   displayIdSchema,
   envelopeOutputSchema,
@@ -31,12 +43,68 @@ export interface PolyScreenServerOptions {
   artifacts?: ArtifactStore;
   recordings?: RecordingSessionManager;
   logcats?: LogcatSessionManager;
+  focusTraces?: FocusTraceSessionManager;
+  systemOps?: SystemOps;
   profiles?: ReadonlySet<string>;
 }
 
+export type PolyScreenMcpServer = McpServer & {
+  listRegisteredTools: () => string[];
+  notifyToolListChanged: () => void;
+};
+
+/** Compact JSON in tool text payloads — agents parse structuredContent anyway. */
 const jsonContent = (value: unknown) => [
-  { type: "text" as const, text: JSON.stringify(value, null, 2) },
+  { type: "text" as const, text: JSON.stringify(value) },
 ];
+
+const INLINE_FOCUS_SAMPLE_LIMIT = 120;
+
+async function compactFocusResult(
+  artifacts: ArtifactStore,
+  stopped: StoppedFocusTrace,
+  includeAllSamples: boolean,
+): Promise<StoppedFocusTrace> {
+  if (
+    includeAllSamples ||
+    stopped.samples.length <= INLINE_FOCUS_SAMPLE_LIMIT
+  ) {
+    return stopped;
+  }
+  const payload = Buffer.from(JSON.stringify(stopped.samples), "utf8");
+  const saved = await artifacts.save(
+    payload,
+    ".json",
+    `focus-${stopped.focusSessionId.slice(0, 8)}`,
+  );
+  return {
+    ...stopped,
+    samples: stopped.samples.slice(0, INLINE_FOCUS_SAMPLE_LIMIT),
+    samplesArtifactUri: saved.uri,
+    // Keep ring-buffer truncated meaning; also note response was compacted.
+    responseCompacted: true,
+  };
+}
+
+function marksNearRuns<
+  T extends {
+    label: string;
+    offsetMs: number;
+    wallClockIso?: string | undefined;
+  },
+>(
+  marks: T[],
+  runs: Array<{ startMs: number; endMs: number }>,
+  windowMs: number,
+): T[] {
+  return marks.filter((mark) =>
+    runs.some(
+      (run) =>
+        mark.offsetMs >= run.startMs - windowMs &&
+        mark.offsetMs <= run.endMs + windowMs,
+    ),
+  );
+}
 
 const mutationAnnotations = {
   readOnlyHint: false,
@@ -54,7 +122,7 @@ const readAnnotations = {
 
 export function createPolyScreenServer(
   options: PolyScreenServerOptions = {},
-): McpServer {
+): PolyScreenMcpServer {
   const controller = options.controller ?? new AndroidController();
   const companion = options.companion ?? new CompanionManager(controller.adb);
   const adbProfiles = options.adbProfiles ?? new AdbProfiles(controller.adb);
@@ -62,20 +130,43 @@ export function createPolyScreenServer(
     options.artifacts ?? new ArtifactStore(adbProfiles.artifactRoot);
   const recordings =
     options.recordings ??
-    new RecordingSessionManager(controller.adb, adbProfiles.artifactRoot);
+    new RecordingSessionManager(controller.adb, artifacts);
   const logcats =
-    options.logcats ??
-    new LogcatSessionManager(controller.adb, adbProfiles.artifactRoot);
+    options.logcats ?? new LogcatSessionManager(controller.adb, artifacts);
+  const focusTraces =
+    options.focusTraces ?? new FocusTraceSessionManager(controller);
+  const systemOps = options.systemOps ?? new SystemOps(controller.adb);
   const profiles = options.profiles ?? new Set(["core"]);
+  const registeredToolNames: string[] = [];
   const server = new McpServer({
-    name: "polyscreen-mcp",
-    version: "0.3.0",
-  });
+    name: PACKAGE_NAME,
+    version: PACKAGE_VERSION,
+  }) as PolyScreenMcpServer;
+  const registerTool = server.registerTool.bind(server);
+  server.registerTool = ((name: string, ...rest: unknown[]) => {
+    registeredToolNames.push(name);
+    return (registerTool as (...args: unknown[]) => unknown)(name, ...rest);
+  }) as typeof server.registerTool;
+
+  const requireBoundRecording = (
+    serial: string,
+    boundRecordId: string | undefined,
+  ): { recordId: string; startedAtMs: number } | undefined => {
+    if (!boundRecordId) return undefined;
+    const recording = recordings.get(boundRecordId);
+    if (!recording || recording.serial !== serial) {
+      throw new Error(`Unknown bound recordId: ${boundRecordId}`);
+    }
+    return { recordId: boundRecordId, startedAtMs: recording.startedAtMs };
+  };
+
+  const listedTools = (): string[] => [...registeredToolNames].sort();
 
   server.registerResource(
     "mobile-artifacts",
     new ResourceTemplate("mobile://artifacts/{name}", {
       list: async () => ({
+        // Metadata stubs only — never embed PNG/MP4 bytes in listings.
         resources: (await artifacts.list()).map((artifact) => ({
           uri: artifact.uri,
           name: artifact.name,
@@ -87,7 +178,7 @@ export function createPolyScreenServer(
     {
       title: "PolyScreen MCP artifacts",
       description:
-        "Screenshots, recordings, logs, traces, and pulled files retained locally.",
+        "Metadata stubs for screenshots, recordings, logs, and traces on disk. Prefer mobile_analyze_recording JSON over fetching binary resources when hunting flashes.",
     },
     async (uri, variables) => {
       const name = decodeURIComponent(String(variables.name));
@@ -105,11 +196,42 @@ export function createPolyScreenServer(
   );
 
   server.registerTool(
+    "mobile_server_info",
+    {
+      title: "PolyScreen server info",
+      description:
+        "Return package version, active profiles, and the exact registered tool list. Call after reconnect to verify Cursor sees the full core surface.",
+      inputSchema: {},
+      outputSchema: {
+        name: z.string(),
+        version: z.string(),
+        profiles: z.array(z.string()),
+        toolCount: z.number(),
+        toolNames: z.array(z.string()),
+        artifactRoot: z.string(),
+      },
+      annotations: readAnnotations,
+    },
+    async () => {
+      const toolNames = listedTools();
+      const result = {
+        name: PACKAGE_NAME,
+        version: PACKAGE_VERSION,
+        profiles: [...profiles].sort(),
+        toolCount: toolNames.length,
+        toolNames,
+        artifactRoot: artifacts.root,
+      };
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
     "mobile_devices_list",
     {
       title: "List Android devices",
       description:
-        "List ADB devices with reachability probes, hardware serial grouping, and preferred TCP serial when duplicates exist.",
+        "List ADB devices with reachability, hardware serial grouping, preferred TCP serial, and aliases when the same device appears under multiple serials.",
       inputSchema: {},
       outputSchema: {
         devices: z.array(
@@ -124,6 +246,7 @@ export function createPolyScreenServer(
             hardwareSerial: z.string().optional(),
             preferredSerial: z.string().optional(),
             preferred: z.boolean().optional(),
+            aliases: z.array(z.string()).optional(),
           }),
         ),
       },
@@ -278,6 +401,32 @@ export function createPolyScreenServer(
   );
 
   server.registerTool(
+    "mobile_sessions_status",
+    {
+      title: "List active detective sessions",
+      description:
+        "Return active async recording, focus, and logcat sessions (optional serial filter). Use before stop/mark to recover IDs after a reconnect.",
+      inputSchema: {
+        serial: serialSchema.optional(),
+      },
+      outputSchema: {
+        recordings: z.array(z.record(z.string(), z.unknown())),
+        focusTraces: z.array(z.record(z.string(), z.unknown())),
+        logcats: z.array(z.record(z.string(), z.unknown())),
+      },
+      annotations: readAnnotations,
+    },
+    async ({ serial }) => {
+      const result = {
+        recordings: recordings.listActive(serial),
+        focusTraces: focusTraces.listActive(serial),
+        logcats: logcats.listActive(serial),
+      };
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
     "mobile_record_start",
     {
       title: "Start async display recording",
@@ -292,6 +441,7 @@ export function createPolyScreenServer(
         pathHint: z.string(),
         displayId: z.number(),
         physicalDisplayId: z.string(),
+        startedAtIso: z.string(),
       },
       annotations: { ...mutationAnnotations, openWorldHint: true },
     },
@@ -335,6 +485,7 @@ export function createPolyScreenServer(
         recordId: z.string(),
         label: z.string(),
         offsetMs: z.number(),
+        wallClockIso: z.string(),
       },
       annotations: mutationAnnotations,
     },
@@ -364,7 +515,15 @@ export function createPolyScreenServer(
         artifactUri: z.string(),
         sizeBytes: z.number(),
         durationMs: z.number(),
-        marks: z.array(z.object({ label: z.string(), offsetMs: z.number() })),
+        startedAtIso: z.string(),
+        stoppedAtIso: z.string(),
+        marks: z.array(
+          z.object({
+            label: z.string(),
+            offsetMs: z.number(),
+            wallClockIso: z.string(),
+          }),
+        ),
       },
       annotations: { ...mutationAnnotations, openWorldHint: true },
     },
@@ -381,42 +540,93 @@ export function createPolyScreenServer(
     {
       title: "Analyze recording for black/dim frames",
       description:
-        "Sample mean grayscale over an MP4 (ffmpeg), detect black/dim runs, classify brightness buckets, and optionally export sample PNGs at anomalies and marks.",
+        "Sample mean grayscale over an MP4 (ffmpeg), detect black/dim runs, classify brightness buckets (true_black, near_black_content, system_launcher_idle, dark_app_ui, light_app_ui), and optionally export sample PNGs. Use mode='flash' for regression hunting (exports samples, denser timelineSummary). Full per-frame timeline is omitted unless includeFullTimeline=true.",
       inputSchema: {
         serial: serialSchema.optional(),
         path: z.string().min(1).optional(),
         artifactUri: z.string().min(1).optional(),
+        mode: z
+          .enum(["default", "flash"])
+          .default("default")
+          .describe(
+            "flash: exportSampleFrames=true, timelineDownsampleMs=100, blackThreshold=16",
+          ),
         fps: z.number().int().min(1).max(60).default(30),
-        blackThreshold: z.number().min(0).max(255).default(40),
+        blackThreshold: z
+          .number()
+          .min(0)
+          .max(255)
+          .default(16)
+          .describe(
+            "Mean gray below this counts as black (default 16 = true_black)",
+          ),
         dimThreshold: z.number().min(0).max(255).default(80),
-        exportSampleFrames: z.boolean().default(false),
+        exportSampleFrames: z.boolean().optional(),
+        includeFullTimeline: z.boolean().default(false),
+        timelineDownsampleMs: z.number().int().min(50).max(5_000).optional(),
         marks: z
-          .array(z.object({ label: z.string(), offsetMs: z.number() }))
+          .array(
+            z.object({
+              label: z.string(),
+              offsetMs: z.number(),
+              wallClockIso: z.string().optional(),
+            }),
+          )
           .optional(),
       },
       outputSchema: {
         path: z.string(),
         durationMs: z.number(),
+        width: z.number(),
+        height: z.number(),
         frameCount: z.number(),
+        sampleFps: z.number(),
+        blackThreshold: z.number(),
+        dimThreshold: z.number(),
         blackFrameCount: z.number(),
         dimFrameCount: z.number(),
+        hasBlackFlash: z.boolean(),
+        hasDimFlash: z.boolean(),
         maxBlackRunMs: z.number(),
+        maxDimRunMs: z.number(),
         firstBlackOffsetMs: z.number().nullable(),
         lastBlackOffsetMs: z.number().nullable(),
-        meanGrayTimeline: z.array(z.record(z.string(), z.unknown())),
-        marks: z.array(z.object({ label: z.string(), offsetMs: z.number() })),
+        firstDimOffsetMs: z.number().nullable(),
+        lastDimOffsetMs: z.number().nullable(),
+        blackRuns: z.array(
+          z.object({
+            startMs: z.number(),
+            endMs: z.number(),
+            durationMs: z.number(),
+          }),
+        ),
+        dimRuns: z.array(
+          z.object({
+            startMs: z.number(),
+            endMs: z.number(),
+            durationMs: z.number(),
+          }),
+        ),
+        blackRunsTruncated: z.boolean(),
+        dimRunsTruncated: z.boolean(),
+        timelineSummary: z.array(z.record(z.string(), z.unknown())),
+        meanGrayTimeline: z.array(z.record(z.string(), z.unknown())).optional(),
+        marks: z.array(z.record(z.string(), z.unknown())),
         samples: z.array(z.record(z.string(), z.unknown())),
         bucketCounts: z.record(z.string(), z.number()),
       },
-      annotations: readAnnotations,
+      annotations: mutationAnnotations,
     },
     async ({
       path,
       artifactUri,
+      mode,
       fps,
       blackThreshold,
       dimThreshold,
       exportSampleFrames,
+      includeFullTimeline,
+      timelineDownsampleMs,
       marks,
     }) => {
       if (!path && !artifactUri) {
@@ -424,17 +634,98 @@ export function createPolyScreenServer(
       }
       const resolved = await resolveRecordingPath(
         { path, artifactUri },
-        adbProfiles.artifactRoot,
+        artifacts.root,
       );
       const result = {
         ...(await analyzeRecording(resolved, {
+          mode,
           fps,
           blackThreshold,
           dimThreshold,
-          exportSampleFrames,
+          ...(exportSampleFrames !== undefined ? { exportSampleFrames } : {}),
+          includeFullTimeline,
+          ...(timelineDownsampleMs !== undefined
+            ? { timelineDownsampleMs }
+            : {}),
           marks,
-          artifactRoot: adbProfiles.artifactRoot,
+          artifactRoot: artifacts.root,
         })),
+      };
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_theme_flash_report",
+    {
+      title: "Theme / night-mode flash report",
+      description:
+        "Correlate system night mode with a recording analysis (mode=flash) and marks near any black/dim timeline sample — useful for splash/theme flashes.",
+      inputSchema: {
+        serial: serialSchema,
+        path: z.string().min(1).optional(),
+        artifactUri: z.string().min(1).optional(),
+        markWindowMs: z.number().int().min(50).max(5_000).default(500),
+      },
+      outputSchema: {
+        nightMode: z.string().optional(),
+        nightModeRaw: z.string(),
+        analysis: z.record(z.string(), z.unknown()),
+        marksNearBlack: z.array(z.record(z.string(), z.unknown())),
+        marksNearDim: z.array(z.record(z.string(), z.unknown())),
+      },
+      annotations: mutationAnnotations,
+    },
+    async ({ serial, path, artifactUri, markWindowMs }, extra) => {
+      if (!path && !artifactUri) {
+        throw new Error("Provide path or artifactUri");
+      }
+      await controller.requireDevice(serial, extra.signal);
+      const night = await systemOps.getNightMode(serial, extra.signal);
+      const resolved = await resolveRecordingPath(
+        { path, artifactUri },
+        artifacts.root,
+      );
+      const analysis = await analyzeRecording(resolved, {
+        mode: "flash",
+        artifactRoot: artifacts.root,
+      });
+      const marksNearBlack = marksNearRuns(
+        analysis.marks,
+        analysis.blackRuns,
+        markWindowMs,
+      );
+      const marksNearDim = marksNearRuns(
+        analysis.marks,
+        analysis.dimRuns,
+        markWindowMs,
+      );
+      const result = {
+        ...(night.nightMode ? { nightMode: night.nightMode } : {}),
+        nightModeRaw: night.raw,
+        analysis: {
+          path: analysis.path,
+          durationMs: analysis.durationMs,
+          blackFrameCount: analysis.blackFrameCount,
+          dimFrameCount: analysis.dimFrameCount,
+          hasBlackFlash: analysis.hasBlackFlash,
+          hasDimFlash: analysis.hasDimFlash,
+          maxBlackRunMs: analysis.maxBlackRunMs,
+          maxDimRunMs: analysis.maxDimRunMs,
+          firstBlackOffsetMs: analysis.firstBlackOffsetMs,
+          lastBlackOffsetMs: analysis.lastBlackOffsetMs,
+          firstDimOffsetMs: analysis.firstDimOffsetMs,
+          lastDimOffsetMs: analysis.lastDimOffsetMs,
+          blackRuns: analysis.blackRuns,
+          dimRuns: analysis.dimRuns,
+          blackRunsTruncated: analysis.blackRunsTruncated,
+          dimRunsTruncated: analysis.dimRunsTruncated,
+          bucketCounts: analysis.bucketCounts,
+          samples: analysis.samples,
+          marks: analysis.marks,
+        },
+        marksNearBlack,
+        marksNearDim,
       };
       return { content: jsonContent(result), structuredContent: result };
     },
@@ -443,33 +734,226 @@ export function createPolyScreenServer(
   server.registerTool(
     "mobile_focus_trace",
     {
-      title: "Trace focused package/activity per display",
+      title: "Trace focused package/activity per display (blocking)",
       description:
-        "Sample focused package, activity, and taskId over time for the requested logical displays (alignable with record marks).",
+        "Blocking sample of focused package/activity/taskId for a fixed duration. Prefer mobile_focus_trace_start/stop when interleaving input or recording. Large sample sets are written to an artifact; only a compact prefix is inlined.",
       inputSchema: {
         serial: serialSchema,
         displayIds: z.array(displayIdSchema).min(1).max(16),
         durationMs: z.number().int().min(100).max(180_000),
-        sampleIntervalMs: z.number().int().min(50).max(5_000).default(100),
+        sampleIntervalMs: z
+          .number()
+          .int()
+          .min(50)
+          .max(5_000)
+          .default(DEFAULT_FOCUS_INTERVAL_MS),
+        maxSamples: z
+          .number()
+          .int()
+          .min(10)
+          .max(5_000)
+          .default(DEFAULT_FOCUS_MAX_SAMPLES),
+        includeAllSamples: z.boolean().default(false),
       },
       outputSchema: {
+        focusSessionId: z.string(),
         serial: z.string(),
         displayIds: z.array(z.number()),
         durationMs: z.number(),
         sampleIntervalMs: z.number(),
         sampleCount: z.number(),
+        truncated: z.boolean(),
+        droppedSamples: z.number(),
+        startedAtIso: z.string(),
+        stoppedAtIso: z.string(),
+        changes: z.array(z.record(z.string(), z.unknown())),
+        changeCount: z.number(),
         samples: z.array(z.record(z.string(), z.unknown())),
+        samplesArtifactUri: z.string().optional(),
+        responseCompacted: z.boolean().optional(),
+        boundRecordId: z.string().optional(),
       },
-      annotations: readAnnotations,
+      annotations: mutationAnnotations,
     },
-    async ({ serial, displayIds, durationMs, sampleIntervalMs }, extra) => {
-      const result = await controller.focusTrace(
+    async (
+      {
+        serial,
+        displayIds,
+        durationMs,
+        sampleIntervalMs,
+        maxSamples,
+        includeAllSamples,
+      },
+      extra,
+    ) => {
+      await controller.requireDevice(serial, extra.signal);
+      const stopped = await focusTraces.runFor(
         serial,
         displayIds,
         durationMs,
         sampleIntervalMs,
         extra.signal,
+        { maxSamples },
       );
+      const result = await compactFocusResult(
+        artifacts,
+        stopped,
+        includeAllSamples,
+      );
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_focus_trace_start",
+    {
+      title: "Start async focus trace",
+      description:
+        "Start non-blocking focus sampling for logical displays. Optionally bind to a recordId so samples include recordOffsetMs aligned with record marks. Default interval 250ms; samples are ring-buffered (maxSamples).",
+      inputSchema: {
+        serial: serialSchema,
+        displayIds: z.array(displayIdSchema).min(1).max(16),
+        sampleIntervalMs: z
+          .number()
+          .int()
+          .min(50)
+          .max(5_000)
+          .default(DEFAULT_FOCUS_INTERVAL_MS),
+        maxSamples: z
+          .number()
+          .int()
+          .min(10)
+          .max(5_000)
+          .default(DEFAULT_FOCUS_MAX_SAMPLES),
+        boundRecordId: z.string().uuid().optional(),
+      },
+      outputSchema: {
+        focusSessionId: z.string(),
+        startedAtIso: z.string(),
+      },
+      annotations: mutationAnnotations,
+    },
+    async (
+      { serial, displayIds, sampleIntervalMs, maxSamples, boundRecordId },
+      extra,
+    ) => {
+      await controller.requireDevice(serial, extra.signal);
+      const bound = requireBoundRecording(serial, boundRecordId);
+      const result = focusTraces.start(serial, displayIds, sampleIntervalMs, {
+        maxSamples,
+        ...(bound
+          ? {
+              boundRecordId: bound.recordId,
+              recordStartedAtMs: bound.startedAtMs,
+            }
+          : {}),
+      });
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_focus_trace_stop",
+    {
+      title: "Stop async focus trace",
+      description:
+        "Stop an async focus session and return focus change events plus samples (wallClockIso, tMs, optional recordOffsetMs). Prefer `changes` for flash/launcher hunting. Large traces write samples JSON to an artifact.",
+      inputSchema: {
+        serial: serialSchema,
+        focusSessionId: z.string().uuid(),
+        includeAllSamples: z.boolean().default(false),
+      },
+      outputSchema: {
+        focusSessionId: z.string(),
+        serial: z.string(),
+        displayIds: z.array(z.number()),
+        durationMs: z.number(),
+        sampleIntervalMs: z.number(),
+        sampleCount: z.number(),
+        truncated: z.boolean(),
+        droppedSamples: z.number(),
+        startedAtIso: z.string(),
+        stoppedAtIso: z.string(),
+        changes: z.array(z.record(z.string(), z.unknown())),
+        changeCount: z.number(),
+        samples: z.array(z.record(z.string(), z.unknown())),
+        samplesArtifactUri: z.string().optional(),
+        responseCompacted: z.boolean().optional(),
+        boundRecordId: z.string().optional(),
+      },
+      annotations: mutationAnnotations,
+    },
+    async ({ serial, focusSessionId, includeAllSamples }) => {
+      const stopped = await focusTraces.stop(serial, focusSessionId);
+      const result = await compactFocusResult(
+        artifacts,
+        stopped,
+        includeAllSamples,
+      );
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_artifacts_list",
+    {
+      title: "List local artifacts",
+      description:
+        "List metadata stubs (uri, name, mime, size) for files under the artifact root. Does not embed binary contents.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(5_000).default(200),
+      },
+      outputSchema: {
+        artifactRoot: z.string(),
+        count: z.number(),
+        artifacts: z.array(
+          z.object({
+            name: z.string(),
+            uri: z.string(),
+            mimeType: z.string(),
+            sizeBytes: z.number(),
+            modifiedAt: z.string(),
+          }),
+        ),
+      },
+      annotations: readAnnotations,
+    },
+    async ({ limit }) => {
+      const listed = await artifacts.list(limit);
+      const result = {
+        artifactRoot: artifacts.root,
+        count: listed.length,
+        artifacts: listed,
+      };
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_artifacts_prune",
+    {
+      title: "Prune local artifacts",
+      description:
+        "Delete old or excess artifact files by maxAgeMs and/or maxCount. Use dryRun to preview.",
+      inputSchema: {
+        maxAgeMs: z.number().int().min(0).optional(),
+        maxCount: z.number().int().min(0).max(5_000).optional(),
+        dryRun: z.boolean().default(true),
+      },
+      outputSchema: {
+        deleted: z.array(z.string()),
+        retained: z.number(),
+        dryRun: z.boolean(),
+      },
+      annotations: { ...mutationAnnotations, destructiveHint: true },
+    },
+    async ({ maxAgeMs, maxCount, dryRun }) => {
+      if (maxAgeMs === undefined && maxCount === undefined) {
+        throw new Error("Provide maxAgeMs and/or maxCount");
+      }
+      const result = {
+        ...(await artifacts.prune({ maxAgeMs, maxCount, dryRun })),
+      };
       return { content: jsonContent(result), structuredContent: result };
     },
   );
@@ -847,17 +1331,21 @@ export function createPolyScreenServer(
         packageName: packageSchema,
         displayId: displayIdSchema,
         activity: z.string().optional(),
+        userId: z
+          .union([z.literal("current"), z.number().int().nonnegative()])
+          .default("current"),
       },
       outputSchema: envelopeOutputSchema.shape,
       annotations: mutationAnnotations,
     },
-    async ({ serial, packageName, displayId, activity }, extra) => {
+    async ({ serial, packageName, displayId, activity, userId }, extra) => {
       const result = await controller.launchApp(
         serial,
         packageName,
         displayId,
         activity,
         extra.signal,
+        userId,
       );
       return { content: jsonContent(result), structuredContent: result };
     },
@@ -886,6 +1374,59 @@ export function createPolyScreenServer(
         userId,
         extra.signal,
       );
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_app_relaunch_on_displays",
+    {
+      title: "Stop then launch on displays",
+      description:
+        "Force-stop a package, then launch its main (or given) activity on each logical display in order. Use for dual-display cold-start / flash reproduction.",
+      inputSchema: {
+        serial: serialSchema,
+        packageName: packageSchema,
+        displayIds: z.array(displayIdSchema).min(1).max(16),
+        activity: z.string().optional(),
+        settleMs: z.number().int().min(0).max(10_000).default(300),
+        userId: z
+          .union([z.literal("current"), z.number().int().nonnegative()])
+          .default("current"),
+      },
+      outputSchema: {
+        packageName: z.string(),
+        stopped: z.record(z.string(), z.unknown()),
+        launches: z.array(z.record(z.string(), z.unknown())),
+      },
+      annotations: mutationAnnotations,
+    },
+    async (
+      { serial, packageName, displayIds, activity, settleMs, userId },
+      extra,
+    ) => {
+      const stopped = await controller.stopApp(
+        serial,
+        packageName,
+        userId,
+        extra.signal,
+      );
+      if (settleMs > 0) await abortableDelay(settleMs, extra.signal);
+      const launches = [];
+      for (const displayId of displayIds) {
+        launches.push(
+          await controller.launchApp(
+            serial,
+            packageName,
+            displayId,
+            activity,
+            extra.signal,
+            userId,
+          ),
+        );
+        if (settleMs > 0) await abortableDelay(settleMs, extra.signal);
+      }
+      const result = { packageName, stopped, launches };
       return { content: jsonContent(result), structuredContent: result };
     },
   );
@@ -1030,6 +1571,7 @@ export function createPolyScreenServer(
         outputSchema: {
           logSessionId: z.string(),
           pathHint: z.string(),
+          startedAtIso: z.string(),
         },
         annotations: { ...mutationAnnotations, openWorldHint: true },
       },
@@ -1038,13 +1580,11 @@ export function createPolyScreenServer(
         extra,
       ) => {
         await controller.requireDevice(serial, extra.signal);
-        if (boundRecordId && !recordings.get(boundRecordId)) {
-          throw new Error(`Unknown bound recordId: ${boundRecordId}`);
-        }
+        const bound = requireBoundRecording(serial, boundRecordId);
         const result = await logcats.start(
           serial,
           { tags, packages, buffer, minimumPriority },
-          { boundRecordId },
+          { boundRecordId: bound?.recordId },
         );
         return { content: jsonContent(result), structuredContent: result };
       },
@@ -1068,6 +1608,8 @@ export function createPolyScreenServer(
           artifactUri: z.string(),
           sizeBytes: z.number(),
           durationMs: z.number(),
+          startedAtIso: z.string(),
+          stoppedAtIso: z.string(),
           lines: z.array(z.string()),
           lineCount: z.number(),
           truncated: z.boolean(),
@@ -1078,6 +1620,151 @@ export function createPolyScreenServer(
       async ({ serial, logSessionId, maxLines }) => {
         const result = {
           ...(await logcats.stop(serial, logSessionId, { maxLines })),
+        };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_diagnostics_activity_tops",
+      {
+        title: "Dump activity tops",
+        description:
+          "Return structured focused/resumed activities (package, activity, displayId, taskId) plus byDisplayId grouping from dumpsys activity activities.",
+        inputSchema: { serial: serialSchema },
+        outputSchema: {
+          tops: z.array(z.record(z.string(), z.unknown())),
+          byDisplayId: z.record(
+            z.string(),
+            z.array(z.record(z.string(), z.unknown())),
+          ),
+          raw: z.string(),
+        },
+        annotations: readAnnotations,
+      },
+      async ({ serial }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = {
+          ...(await systemOps.activityTops(serial, extra.signal)),
+        };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_diagnostics_layer_hints",
+      {
+        title: "SurfaceFlinger layer hints",
+        description:
+          "Return bounded SurfaceFlinger lines that may indicate HWC/Presentation/layer ownership issues related to blank panels.",
+        inputSchema: { serial: serialSchema },
+        outputSchema: {
+          hints: z.array(z.string()),
+          raw: z.string(),
+        },
+        annotations: readAnnotations,
+      },
+      async ({ serial }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = {
+          ...(await systemOps.layerHints(serial, extra.signal)),
+        };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_power_wake",
+      {
+        title: "Wake device",
+        description: "Send KEYCODE_WAKEUP to turn the screen on.",
+        inputSchema: { serial: serialSchema },
+        outputSchema: { ok: z.literal(true), output: z.string() },
+        annotations: mutationAnnotations,
+      },
+      async ({ serial }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const output = await systemOps.wake(serial, extra.signal);
+        const result = { ok: true as const, output };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_uimode_get",
+      {
+        title: "Get night mode",
+        description: "Read the current ui mode night setting via cmd uimode.",
+        inputSchema: { serial: serialSchema },
+        outputSchema: {
+          raw: z.string(),
+          nightMode: z.string().optional(),
+        },
+        annotations: readAnnotations,
+      },
+      async ({ serial }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = {
+          ...(await systemOps.getNightMode(serial, extra.signal)),
+        };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_uimode_set",
+      {
+        title: "Set night mode",
+        description:
+          "Set night mode via cmd uimode night (yes/no/auto/custom_*). Useful when theme/splash flashes depend on system night mode.",
+        inputSchema: {
+          serial: serialSchema,
+          mode: z.enum([
+            "yes",
+            "no",
+            "auto",
+            "custom_schedule",
+            "custom_bedtime",
+          ]),
+        },
+        outputSchema: { output: z.string() },
+        annotations: mutationAnnotations,
+      },
+      async ({ serial, mode }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = {
+          output: await systemOps.setNightMode(serial, mode, extra.signal),
+        };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_app_prefs_read",
+      {
+        title: "Read debuggable app shared_prefs",
+        description:
+          "Read a shared_prefs XML file via run-as (debuggable apps only).",
+        inputSchema: {
+          serial: serialSchema,
+          packageName: packageSchema,
+          fileName: z
+            .string()
+            .regex(/^[A-Za-z0-9_./-]{1,128}$/)
+            .describe("File under shared_prefs/, e.g. settings.xml"),
+        },
+        outputSchema: { xml: z.string() },
+        annotations: readAnnotations,
+      },
+      async ({ serial, packageName, fileName }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = {
+          xml: await systemOps.readSharedPrefs(
+            serial,
+            packageName,
+            fileName,
+            extra.signal,
+          ),
         };
         return { content: jsonContent(result), structuredContent: result };
       },
@@ -1363,11 +2050,31 @@ export function createPolyScreenServer(
     );
   }
 
+  const toolNames = listedTools();
+  const missingDetective = CORE_DETECTIVE_TOOLS.filter(
+    (name) => !toolNames.includes(name),
+  );
+  if (missingDetective.length > 0) {
+    console.error(
+      `[polyscreen-mcp] Tool registration self-check failed: missing=${missingDetective.join(",")}`,
+    );
+  } else {
+    console.error(
+      `[polyscreen-mcp] ${PACKAGE_VERSION} registered ${toolNames.length} tools (profiles=${[...profiles].sort().join(",")}): ${toolNames.join(", ")}`,
+    );
+  }
+
+  server.listRegisteredTools = listedTools;
+  server.notifyToolListChanged = () => {
+    server.sendToolListChanged();
+  };
+
   const closeServer = server.close.bind(server);
   server.close = async (): Promise<void> => {
     await Promise.allSettled([
       recordings.stopAll(),
       logcats.stopAll(),
+      focusTraces.stopAll(),
       companion.stopAll(),
     ]);
     await closeServer();

@@ -38,4 +38,21 @@ describe("ArtifactStore", () => {
       "Invalid artifact name",
     );
   });
+
+  it("prunes by maxCount", async () => {
+    const root = await mkdtemp(join(tmpdir(), "polyscreen-artifacts-"));
+    roots.push(root);
+    const store = new ArtifactStore(root);
+    await store.save(Buffer.from("a"), ".txt", "a");
+    await store.save(Buffer.from("b"), ".txt", "b");
+    await store.save(Buffer.from("c"), ".txt", "c");
+
+    const preview = await store.prune({ maxCount: 1, dryRun: true });
+    expect(preview.deleted).toHaveLength(2);
+    expect(await store.list()).toHaveLength(3);
+
+    const pruned = await store.prune({ maxCount: 1, dryRun: false });
+    expect(pruned.deleted).toHaveLength(2);
+    expect(await store.list()).toHaveLength(1);
+  });
 });

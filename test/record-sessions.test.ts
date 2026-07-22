@@ -4,7 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { RecordingSessionManager } from "../src/android/record-sessions.js";
+import {
+  cmdlineLooksLikeScreenrecord,
+  RecordingSessionManager,
+} from "../src/android/record-sessions.js";
 import { FakeAdbRunner } from "./fake-adb.js";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -14,6 +17,24 @@ afterEach(async () => {
 });
 
 describe("RecordingSessionManager", () => {
+  it("accepts only screenrecord cmdlines for the session path", () => {
+    expect(
+      cmdlineLooksLikeScreenrecord(
+        "screenrecord\0--display-id\0/data/local/tmp/recording-1.mp4\0",
+        "/data/local/tmp/recording-1.mp4",
+      ),
+    ).toBe(true);
+    expect(
+      cmdlineLooksLikeScreenrecord(
+        "screenrecord\0/data/local/tmp/other.mp4\0",
+        "/data/local/tmp/recording-1.mp4",
+      ),
+    ).toBe(false);
+    expect(
+      cmdlineLooksLikeScreenrecord("bash\0", "/data/local/tmp/recording-1.mp4"),
+    ).toBe(false);
+  });
+
   it("rejects invalid mark labels and unknown sessions", async () => {
     const dir = await mkdtemp(join(tmpdir(), "polyscreen-record-"));
     cleanups.push(async () => rm(dir, { recursive: true, force: true }));
@@ -48,32 +69,71 @@ describe("RecordingSessionManager", () => {
           durationMs: 1,
         };
       }
-      if (args[0] === "shell" && args[1] === "kill" && args[2] === "-0") {
-        // Alive once after start, dead after SIGINT.
-        const aliveCalls = runner.calls.filter(
+      if (
+        args[0] === "shell" &&
+        args[1] === "cat" &&
+        typeof args[2] === "string" &&
+        args[2].startsWith("/proc/")
+      ) {
+        // Alive with matching cmdline until SIGINT, then gone.
+        const intSent = runner.calls.some(
           (call) =>
             call.args[0] === "shell" &&
             call.args[1] === "kill" &&
-            call.args[2] === "-0",
-        ).length;
-        if (aliveCalls <= 1) {
-          return {
-            argv: [...args],
-            stdout: Buffer.alloc(0),
-            stderr: Buffer.alloc(0),
-            exitCode: 0,
-            durationMs: 1,
-          };
+            call.args[2] === "-INT",
+        );
+        if (intSent) {
+          throw Object.assign(new Error("No such file"), {
+            result: {
+              argv: [...args],
+              stdout: Buffer.alloc(0),
+              stderr: Buffer.from("No such file"),
+              exitCode: 1,
+              durationMs: 1,
+            },
+          });
         }
-        throw Object.assign(new Error("not running"), {
-          result: {
-            argv: [...args],
-            stdout: Buffer.alloc(0),
-            stderr: Buffer.from("No such process"),
-            exitCode: 1,
-            durationMs: 1,
-          },
-        });
+        const remote = String(
+          runner.calls.find(
+            (call) =>
+              call.args[0] === "shell" &&
+              call.args[1] === "sh" &&
+              call.args[2] === "-c",
+          )?.args[3] ?? "",
+        ).match(/(\/data\/local\/tmp\/[^'\s]+)/)?.[1];
+        return {
+          argv: [...args],
+          stdout: Buffer.from(`screenrecord\0--display-id\0${remote ?? "x"}\0`),
+          stderr: Buffer.alloc(0),
+          exitCode: 0,
+          durationMs: 1,
+        };
+      }
+      if (args[0] === "shell" && args[1] === "kill" && args[2] === "-0") {
+        const intSent = runner.calls.some(
+          (call) =>
+            call.args[0] === "shell" &&
+            call.args[1] === "kill" &&
+            call.args[2] === "-INT",
+        );
+        if (intSent) {
+          throw Object.assign(new Error("not running"), {
+            result: {
+              argv: [...args],
+              stdout: Buffer.alloc(0),
+              stderr: Buffer.from("No such process"),
+              exitCode: 1,
+              durationMs: 1,
+            },
+          });
+        }
+        return {
+          argv: [...args],
+          stdout: Buffer.alloc(0),
+          stderr: Buffer.alloc(0),
+          exitCode: 0,
+          durationMs: 1,
+        };
       }
       if (args[0] === "shell" && args[1] === "kill" && args[2] === "-INT") {
         return {
@@ -114,6 +174,7 @@ describe("RecordingSessionManager", () => {
     const mark = manager.mark("serial", started.recordId, "press-a");
     expect(mark.label).toBe("press-a");
     expect(mark.offsetMs).toBeGreaterThanOrEqual(0);
+    expect(mark.wallClockIso).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     await expect(manager.start("serial", 4, physicalDisplayId)).rejects.toThrow(
       "Recording already active",

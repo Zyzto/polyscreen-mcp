@@ -34,38 +34,6 @@ pnpm check
 pnpm build
 ```
 
-Run through an MCP client:
-
-```json
-{
-  "mcpServers": {
-    "polyscreen": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/polyscreen-mcp/dist/cli.js",
-        "--profile",
-        "core",
-        "diagnostics",
-        "companion"
-      ]
-    }
-  }
-}
-```
-
-After publication, the intended command is:
-
-```json
-{
-  "mcpServers": {
-    "polyscreen": {
-      "command": "npx",
-      "args": ["-y", "polyscreen-mcp@latest"]
-    }
-  }
-}
-```
-
 For local Streamable HTTP:
 
 ```bash
@@ -78,48 +46,64 @@ The endpoint is `http://127.0.0.1:3300/mcp`. HTTP always binds to loopback, vali
 
 The default `core` profile is deliberately compact. Additional profiles advertise tools only when requested.
 
-| Profile        | Capabilities                                                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `core`         | Devices, capabilities, displays, screenshots, async record/analyze, focus traces, UI, touch, keys, text, app lifecycle/install |
-| `apps`         | Package inventory and scoped broadcasts                                                                                        |
-| `diagnostics`  | Bounded dumpsys bundles, filtered logcat snapshots, and scoped logcat start/stop sessions                                      |
-| `files`        | Constrained push/pull under approved roots                                                                                     |
-| `performance`  | CPU, power, battery, memory, and frame snapshots                                                                               |
-| `device-admin` | Explicit runtime permission grant/revoke                                                                                       |
-| `companion`    | All-display accessibility windows and explicit key press/down/up                                                               |
-| `all`          | Every implemented profile                                                                                                      |
+| Profile        | Capabilities                                                                                                                 |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `core`         | Server info, devices, displays, screenshots, async record/analyze, async focus traces, artifacts list/prune, UI, input, apps |
+| `apps`         | Package inventory and scoped broadcasts                                                                                      |
+| `diagnostics`  | Dumpsys slices, logcat snapshot/start/stop, wake, night mode, debuggable shared_prefs read                                   |
+| `files`        | Constrained push/pull under approved roots                                                                                   |
+| `performance`  | CPU, power, battery, memory, and frame snapshots                                                                             |
+| `device-admin` | Explicit runtime permission grant/revoke                                                                                     |
+| `companion`    | All-display accessibility windows and explicit key press/down/up                                                             |
+| `all`          | Every implemented profile                                                                                                    |
 
 `unsafe` and emulator profiles are reserved but do not expose raw shell in this release.
 
+## Cursor config
+
+```json
+{
+  "mcpServers": {
+    "polyscreen": {
+      "command": "npx",
+      "args": ["-y", "polyscreen-mcp@0.4.0", "--profile", "core", "diagnostics"]
+    }
+  }
+}
+```
+
+Pin a version (e.g. `polyscreen-mcp@0.4.0`) in Cursor `mcp.json` so reconnects do not silently pull a different `@latest`. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version` plus detective tools (`mobile_analyze_recording`, `mobile_theme_flash_report`, focus/record session tools). If the tool list looks stale, toggle the server off/on in Cursor MCP settings so `list_changed` is applied.
+
+`diagnostics` is required for logcat start/stop, activity tops, wake, and night-mode tools.
+
 ## Core tools
 
+- `mobile_server_info`
 - `mobile_devices_list`
 - `mobile_device_inspect`
 - `mobile_displays_list`
 - `mobile_screen_capture`
 - `mobile_screen_capture_pair`
 - `mobile_screen_record`
+- `mobile_sessions_status`
 - `mobile_record_start` / `mobile_record_mark` / `mobile_record_stop`
-- `mobile_analyze_recording`
-- `mobile_focus_trace`
-- `mobile_ui_snapshot`
-- `mobile_ui_find`
-- `mobile_ui_wait`
-- `mobile_input_tap`
-- `mobile_input_swipe`
-- `mobile_input_drag`
-- `mobile_input_key`
-- `mobile_input_key_combination`
-- `mobile_input_text`
-- `mobile_app_inspect`
-- `mobile_app_launch`
-- `mobile_app_stop`
-- `mobile_app_install`
-- `mobile_app_uninstall`
+- `mobile_analyze_recording` (`mode: "flash"` for regression hunting)
+- `mobile_theme_flash_report`
+- `mobile_focus_trace` (blocking) / `mobile_focus_trace_start` / `mobile_focus_trace_stop`
+- `mobile_artifacts_list` / `mobile_artifacts_prune`
+- `mobile_ui_snapshot` / `mobile_ui_find` / `mobile_ui_wait`
+- `mobile_input_tap` / `mobile_input_swipe` / `mobile_input_drag`
+- `mobile_input_key` / `mobile_input_key_combination` / `mobile_input_text`
+- `mobile_app_inspect` / `mobile_app_launch` / `mobile_app_stop` / `mobile_app_relaunch_on_displays`
+- `mobile_app_install` / `mobile_app_uninstall`
 
 Every display-sensitive tool takes a framework **logical** `displayId`. Screenshot and recording implementations resolve that to a SurfaceFlinger **physical** ID internally.
 
-Screenshots can be retained with `saveArtifact`. Pulled files and retained captures are exposed through the `mobile://artifacts/{name}` MCP resource template, keeping large binary payloads out of structured JSON.
+Screenshots can be retained with `saveArtifact`. Artifact **listings** are metadata stubs only (`uri`, `name`, `mimeType`, `sizeBytes`). Binary bytes are read on demand via `resources/read` — prefer `mobile_analyze_recording` JSON over many `mobile_screen_capture` images when hunting flashes.
+
+### Server info and tool-list integrity
+
+`mobile_server_info` returns `{ version, profiles, toolCount, toolNames, artifactRoot }`. On startup the process logs the registered tool count and names to stderr and sends `notifications/tools/list_changed` after connect so clients refresh stale caches.
 
 ### Devices and serials
 
@@ -127,77 +111,100 @@ Screenshots can be retained with `saveArtifact`. Pulled files and retained captu
 
 - `reachable` — short `get-state` probe (stale wireless/mDNS entries often fail here);
 - `hardwareSerial` — `ro.serialno` when the probe succeeds;
-- `preferred` / `preferredSerial` — when the same hardware appears under multiple serials (for example TCP `IP:port` and an `adb-tls` mDNS name), the list prefers a reachable TCP serial and points duplicates at it.
+- `preferred` / `preferredSerial` — when the same hardware appears under multiple serials (for example TCP `IP:port` and an `adb-tls` mDNS name), the list prefers a reachable TCP serial;
+- `aliases` — other serials in the same hardware group (only when `hardwareSerial` matches; empty product/model metadata never collapses unrelated devices).
 
-Never invent a serial. Pass the exact value from this list into every other tool.
+Never invent a serial. Pass the exact preferred value from this list into every other tool.
 
 ### Async recording and visual analysis
 
-`mobile_screen_record` blocks for its full `durationSeconds`, so the agent cannot send input during capture. Prefer the async session when reproducing launch, Home, or gamepad-driven transitions:
+`mobile_screen_record` blocks for its full `durationSeconds`. Prefer the async session when input must interleave:
 
-| Tool                       | Purpose                                                                                                                                 |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `mobile_record_start`      | Start on-device `screenrecord` for one logical display. Returns `{ recordId, pathHint }`. One active session per `(serial, displayId)`. |
-| `mobile_record_mark`       | Label a timeline point (`pre-launch`, `press-a`, `home`, …) with `offsetMs` from session start.                                         |
-| `mobile_record_stop`       | SIGINT the recorder, pull the MP4 into artifacts, return `{ path, artifactUri, marks, durationMs }`.                                    |
-| `mobile_analyze_recording` | Quantify black/dim frames from a local `path` or `mobile://artifacts/…` URI.                                                            |
+| Tool                       | Purpose                                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `mobile_sessions_status`   | List active record / focus / logcat sessions (recover IDs after reconnect).                             |
+| `mobile_record_start`      | Start on-device `screenrecord` for one logical display. Returns `{ recordId, pathHint, startedAtIso }`. |
+| `mobile_record_mark`       | Label a point with `offsetMs` + `wallClockIso`.                                                         |
+| `mobile_record_stop`       | Finalize MP4 + marks sidecar.                                                                           |
+| `mobile_analyze_recording` | Quantify black/dim frames from `path` or `artifactUri` (`hasBlackFlash` / `hasDimFlash`).               |
 
-Async sessions run in the background on the device and do **not** hold the per-device mutation queue, so `mobile_input_key`, taps, and other tools can interleave freely.
+Async sessions do **not** hold the mutation queue.
 
 `mobile_analyze_recording` options:
 
-| Option               | Default        | Meaning                                                    |
-| -------------------- | -------------- | ---------------------------------------------------------- |
-| `fps`                | `30`           | Sample rate for the mean-gray timeline                     |
-| `blackThreshold`     | `40`           | Frame mean gray below this counts as black                 |
-| `dimThreshold`       | `80`           | Frame mean gray below this counts as dim                   |
-| `exportSampleFrames` | `false`        | Write PNGs at first/last black and at each mark            |
-| `marks`              | sidecar / none | Optional explicit marks if no `.marks.json` sidecar exists |
+| Option                 | Default                     | Meaning                                           |
+| ---------------------- | --------------------------- | ------------------------------------------------- |
+| `mode`                 | `default`                   | `flash` sets sample export on and denser summary  |
+| `fps`                  | `30`                        | Sample rate                                       |
+| `blackThreshold`       | `16`                        | Mean gray below this = black (`true_black` band)  |
+| `dimThreshold`         | `80`                        | Mean gray below this = dim                        |
+| `exportSampleFrames`   | `false` (`true` in `flash`) | PNGs at first/last black and each mark            |
+| `includeFullTimeline`  | `false`                     | Include full per-frame `meanGrayTimeline` (large) |
+| `timelineDownsampleMs` | `200` (`100` in `flash`)    | Step for compact `timelineSummary`                |
 
-Analysis requires host `ffmpeg` and `ffprobe`. Typical structured fields:
+Compact fields always returned: counts, `blackRuns`/`dimRuns`, marks, `timelineSummary`, `bucketCounts`, optional `samples`.
 
-- `durationMs`, `frameCount`, `blackFrameCount`, `dimFrameCount`
-- `maxBlackRunMs`, `firstBlackOffsetMs`, `lastBlackOffsetMs`
-- `meanGrayTimeline` — `[{ tMs, mean, bucket }, …]`
-- `marks`, `samples` (exported frame paths when requested)
-- `bucketCounts` — coarse brightness classifiers:
-  - `true_black` — near-empty / HWC black (very low mean)
-  - `system_launcher_idle` — mid-dark idle wallpaper/launcher band
-  - `dark_app_ui` — dark theme / splash-like content
-  - `light_app_ui` — bright light-theme UI
-  - `other` — everything else
+`mobile_theme_flash_report` reads night mode, runs `mode: "flash"` analysis, and lists marks whose offsets fall inside any reported black/dim run (± `markWindowMs`). Run lists are capped (`blackRunsTruncated` / `dimRunsTruncated`).
 
-Thresholds alone cannot separate true black from dark UI; use `exportSampleFrames` when classifying regressions.
+Buckets:
+
+| Bucket                 | Typical mean gray | Meaning                               |
+| ---------------------- | ----------------- | ------------------------------------- |
+| `true_black`           | ~0–15             | Empty / HWC black                     |
+| `near_black_content`   | ~16–29            | Near-black splash/content (not empty) |
+| `system_launcher_idle` | ~30–55            | Idle system launcher / wallpaper band |
+| `dark_app_ui`          | ~56–119           | Dark theme / dark splash              |
+| `light_app_ui`         | ~190–230          | Light app UI                          |
+| `other`                | remainder         | Unclassified                          |
+
+Use `exportSampleFrames: true` when asserting regressions — thresholds alone are insufficient.
+
+### Time bases (joining record / focus / logcat)
+
+Record/focus sessions share wall-clock ISO timestamps from host `Date.now()`. Logcat session bounds use host ISO; individual lines keep Android `threadtime`:
+
+| Source         | Fields                                                                                                |
+| -------------- | ----------------------------------------------------------------------------------------------------- |
+| Record marks   | `offsetMs` from record start, `wallClockIso`                                                          |
+| Focus samples  | `tMs` from focus session start, `wallClockIso`, optional `recordOffsetMs` when `boundRecordId` is set |
+| Logcat session | `startedAtIso` / `stoppedAtIso`; each line keeps Android `threadtime`                                 |
+
+Join on `wallClockIso` (absolute) or on `recordOffsetMs` / mark `offsetMs` when sessions are bound to the same `recordId`.
 
 ### Focus timeline
 
-`mobile_focus_trace` samples focused package, activity, task id, and window for the requested logical displays over `durationMs` at `sampleIntervalMs` (default 100 ms). Timestamps are wall-clock offsets alignable with record marks. Use this when a screenshot cannot show whether the system launcher briefly owned a display before an app reclaimed it.
+| Tool                                | Purpose                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------ |
+| `mobile_focus_trace`                | Blocking sample for a fixed `durationMs` (default 250ms interval, ring buffer) |
+| `mobile_focus_trace_start` / `stop` | Non-blocking; bind with `boundRecordId` for `recordOffsetMs`                   |
 
-### Paired capture
+Stop results include `changes` / `changeCount` (focus transitions per display) — prefer that over raw `samples` when hunting launcher/app swaps. Default `maxSamples` is 800 (covers 180s @ 250ms). If the ring evicts, `truncated`/`droppedSamples` report it. Large responses also write a JSON artifact (`samplesArtifactUri`) and inline only a prefix unless `includeAllSamples` is true.
 
-`mobile_screen_capture_pair` resolves displays once, then runs parallel `screencap` for two or more logical IDs. Useful when a flash appears on one display while another is launching. Returns per-display PNGs plus `skewMs` for the parallel window.
+### Artifacts
 
-### Scoped logcat (diagnostics profile)
+| Tool                     | Purpose                                |
+| ------------------------ | -------------------------------------- |
+| `mobile_artifacts_list`  | Metadata stubs only                    |
+| `mobile_artifacts_prune` | `maxAgeMs` / `maxCount`, with `dryRun` |
 
-| Tool                  | Purpose                                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------------- |
-| `mobile_logcat`       | One-shot bounded dump (`-d`) with validated buffer, tags, and priority                            |
-| `mobile_logcat_start` | Clear the buffer and stream logs to an artifact; optional `tags`, `packages`, and `boundRecordId` |
-| `mobile_logcat_stop`  | Stop the stream and return `{ path, artifactUri, lines, durationMs }`                             |
+### Diagnostics extras (diagnostics profile)
 
-Bind a log session to a `recordId` when correlating launch tags with black-frame windows from analysis.
+- `mobile_logcat` / `mobile_logcat_start` / `mobile_logcat_stop`
+- `mobile_diagnostics_collect` / `mobile_diagnostics_activity_tops` / `mobile_diagnostics_layer_hints`
+- `mobile_power_wake` / `mobile_uimode_get` / `mobile_uimode_set`
+- `mobile_app_prefs_read` (debuggable `run-as` shared_prefs)
+
+`mobile_app_launch` / `mobile_app_stop` / `mobile_app_relaunch_on_displays` cover per-package force-stop and display-targeted launch (including stop→launch recipes across multiple logical displays). `mobile_broadcast_send` (apps profile) covers app debug actions.
 
 ### Visual regression workflow
 
-For black frames, wrong launcher ownership, or theme flashes across displays:
-
-1. `mobile_record_start` on the logical display under test
-2. Optionally `mobile_logcat_start` (diagnostics) with `boundRecordId`
-3. `mobile_focus_trace` for the involved display IDs around the scenario (or sample between actions)
-4. `mobile_record_mark` before/after actions while sending `mobile_input_key` / taps
-5. Optionally `mobile_screen_capture_pair` at a marked moment
-6. `mobile_record_stop` → `mobile_analyze_recording` with `exportSampleFrames: true`
-7. Fail the scenario if `blackFrameCount > 0`, or if focus samples show an unexpected package (for example the system launcher) on a display between marks
+1. `mobile_server_info` — confirm version and tools
+2. `mobile_record_start` on the display under test
+3. Optional `mobile_logcat_start` + `mobile_focus_trace_start` with `boundRecordId`
+4. `mobile_record_mark` → input (gamepad / tap / HOME) → `mobile_record_mark`
+5. Stop focus/logcat → `mobile_record_stop`
+6. `mobile_analyze_recording` with `mode: "flash"` (or `mobile_theme_flash_report` when night mode matters)
+7. Fail if `blackFrameCount > 0` (HWC/empty black at default threshold 16), or focus shows the stock launcher on the secondary display during Home. Treat `system_launcher_idle` as a separate bucket — idle launcher wallpaper is not a black flash.
 
 ## Multi-display model
 
@@ -260,13 +267,14 @@ Platform limits are reported rather than hidden:
 
 ## Security
 
-- No `/bin/sh -c` or command-string interpolation.
+- Host-side commands are argv arrays (no host `/bin/sh -c`). On-device async `screenrecord` uses a bounded `sh -c` with a validated physical display ID and quoted remote path under `/data/local/tmp`.
 - Device serials, packages, components, keycodes, tags, permissions, paths, and display IDs are validated.
-- Mutations are serialized per device.
+- Input/UI mutations are serialized per device. Async record/logcat/focus sessions intentionally bypass that queue so agents can interleave input.
 - Subprocesses have deadlines, cancellation, and output caps.
 - Push paths must remain under the server host root.
 - Pull/push device paths are restricted to shared storage and `/data/local/tmp`.
 - Raw shell, root, remount, verity, SELinux, partition, credential, and system-process operations are not exposed.
+- Recording stop probes `/proc/<pid>/cmdline` for this session's `screenrecord` path (token match). Transient probe failures while the PID is still alive are treated as uncertain and still signaled so a live recording is not pulled mid-write.
 
 See [SECURITY.md](SECURITY.md) for reporting and deployment guidance.
 

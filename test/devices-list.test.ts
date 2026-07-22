@@ -38,14 +38,81 @@ describe("mobile_devices_list reachability", () => {
       preferred: true,
       preferredSerial: "10.0.0.174:5555",
       hardwareSerial: "THORHW",
+      aliases: ["adb-Thor-xxx._adb-tls-connect._tcp"],
     });
     expect(mdns).toMatchObject({
       reachable: true,
       preferred: false,
       preferredSerial: "10.0.0.174:5555",
       hardwareSerial: "THORHW",
+      aliases: ["10.0.0.174:5555"],
     });
     expect(devices[0]?.serial).toBe("10.0.0.174:5555");
+  });
+
+  it("does not alias devices that lack hardwareSerial", async () => {
+    const runner = new FakeAdbRunner().respond(
+      ["devices", "-l"],
+      [
+        "List of devices attached",
+        "offline-a offline product:X model:Y device:z",
+        "offline-b offline product:X model:Y device:z",
+        "",
+      ].join("\n"),
+    );
+
+    const devices = await new AndroidController(runner).listDevices();
+    expect(devices).toHaveLength(2);
+    expect(devices.every((device) => device.aliases?.length === 0)).toBe(true);
+    expect(
+      devices.every((device) => device.preferredSerial === device.serial),
+    ).toBe(true);
+  });
+
+  it("does not mark unreachable twins as preferred", async () => {
+    const runner = new FakeAdbRunner().respond(
+      ["devices", "-l"],
+      [
+        "List of devices attached",
+        "10.0.0.1:5555 device product:X model:Y device:z",
+        "adb-twin._adb-tls-connect._tcp device product:X model:Y device:z",
+        "",
+      ].join("\n"),
+    );
+
+    const original = runner.run.bind(runner);
+    runner.run = async (args, options = {}) => {
+      if (args[0] === "get-state") {
+        throw Object.assign(new Error("offline"), {
+          result: {
+            argv: [...args],
+            stdout: Buffer.alloc(0),
+            stderr: Buffer.from("offline"),
+            exitCode: 1,
+            durationMs: 1,
+          },
+        });
+      }
+      if (args[0] === "shell" && args[1] === "getprop") {
+        return {
+          argv: [...args],
+          stdout: Buffer.from("HW999\n"),
+          stderr: Buffer.alloc(0),
+          exitCode: 0,
+          durationMs: 1,
+        };
+      }
+      return original(args, options);
+    };
+
+    const devices = await new AndroidController(runner).listDevices();
+    expect(devices).toHaveLength(2);
+    expect(devices.every((device) => device.hardwareSerial === "HW999")).toBe(
+      true,
+    );
+    expect(devices.every((device) => device.reachable === false)).toBe(true);
+    expect(devices.every((device) => device.preferred === false)).toBe(true);
+    expect(devices[0]?.preferredSerial).toBe(devices[1]?.preferredSerial);
   });
 
   it("marks unreachable serials", async () => {

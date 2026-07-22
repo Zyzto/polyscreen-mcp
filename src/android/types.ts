@@ -19,6 +19,8 @@ export interface AndroidDevice {
   preferredSerial?: string;
   /** True when this entry is the preferred serial for its hardware group. */
   preferred?: boolean;
+  /** Other ADB serials that resolve to the same hardware (when known). */
+  aliases?: string[];
 }
 
 export interface DisplayEvidence {
