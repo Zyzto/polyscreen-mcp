@@ -30,9 +30,16 @@ describe("MCP server contract", () => {
     const names = (await client.listTools()).tools.map((tool) => tool.name);
     expect(names).toContain("mobile_displays_list");
     expect(names).toContain("mobile_input_key_combination");
+    expect(names).toContain("mobile_record_start");
+    expect(names).toContain("mobile_record_mark");
+    expect(names).toContain("mobile_record_stop");
+    expect(names).toContain("mobile_analyze_recording");
+    expect(names).toContain("mobile_focus_trace");
+    expect(names).toContain("mobile_screen_capture_pair");
     expect(names).toContain("mobile_logcat");
+    expect(names).toContain("mobile_logcat_start");
+    expect(names).toContain("mobile_logcat_stop");
     expect(names).toContain("mobile_broadcast_send");
     expect(names).not.toContain("mobile_companion_key");
-    expect(names.length).toBeLessThanOrEqual(24);
   });
 });

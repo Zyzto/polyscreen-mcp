@@ -1,0 +1,86 @@
+import { describe, expect, it } from "vitest";
+
+import { AndroidController } from "../src/android/android-controller.js";
+import { FakeAdbRunner } from "./fake-adb.js";
+
+describe("mobile_devices_list reachability", () => {
+  it("prefers a reachable TCP serial over an mDNS twin", async () => {
+    const runner = new FakeAdbRunner()
+      .respond(
+        ["devices", "-l"],
+        [
+          "List of devices attached",
+          "10.0.0.174:5555 device product:Thor model:AYN_Thor device:thor transport_id:7",
+          "adb-Thor-xxx._adb-tls-connect._tcp device product:Thor model:AYN_Thor device:thor transport_id:8",
+          "",
+        ].join("\n"),
+      )
+      .respond(["get-state"], "device", { serial: "10.0.0.174:5555" })
+      .respond(["shell", "getprop", "ro.serialno"], "THORHW", {
+        serial: "10.0.0.174:5555",
+      })
+      .respond(["get-state"], "device", {
+        serial: "adb-Thor-xxx._adb-tls-connect._tcp",
+      })
+      .respond(["shell", "getprop", "ro.serialno"], "THORHW", {
+        serial: "adb-Thor-xxx._adb-tls-connect._tcp",
+      });
+
+    const devices = await new AndroidController(runner).listDevices();
+
+    expect(devices).toHaveLength(2);
+    const tcp = devices.find((device) => device.serial === "10.0.0.174:5555");
+    const mdns = devices.find((device) =>
+      device.serial.includes("_adb-tls-connect._tcp"),
+    );
+    expect(tcp).toMatchObject({
+      reachable: true,
+      preferred: true,
+      preferredSerial: "10.0.0.174:5555",
+      hardwareSerial: "THORHW",
+    });
+    expect(mdns).toMatchObject({
+      reachable: true,
+      preferred: false,
+      preferredSerial: "10.0.0.174:5555",
+      hardwareSerial: "THORHW",
+    });
+    expect(devices[0]?.serial).toBe("10.0.0.174:5555");
+  });
+
+  it("marks unreachable serials", async () => {
+    const runner = new FakeAdbRunner()
+      .respond(
+        ["devices", "-l"],
+        "List of devices attached\nstale:5555 device product:Thor model:AYN_Thor device:thor\n",
+      )
+      .respond(["get-state"], "", {
+        serial: "stale:5555",
+        exitCode: 1,
+        stderr: "error: device offline",
+      });
+
+    // FakeAdbRunner returns exitCode in response but still resolves; simulate failure.
+    const original = runner.run.bind(runner);
+    runner.run = async (args, options = {}) => {
+      if (args[0] === "get-state") {
+        throw Object.assign(new Error("device offline"), {
+          result: {
+            argv: [...args],
+            stdout: Buffer.alloc(0),
+            stderr: Buffer.from("offline"),
+            exitCode: 1,
+            durationMs: 1,
+          },
+        });
+      }
+      return original(args, options);
+    };
+
+    const devices = await new AndroidController(runner).listDevices();
+    expect(devices[0]).toMatchObject({
+      serial: "stale:5555",
+      reachable: false,
+    });
+  });
+});

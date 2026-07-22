@@ -54,12 +54,16 @@ describe("AndroidController", () => {
         width: 1920,
         height: 1080,
         focusedActivity: "com.game/.MainActivity",
+        focusedPackage: "com.game",
+        focusedTaskId: 2,
       },
       {
         logicalId: 4,
         physicalId: "222222222222222222",
         state: "ON",
         focusedWindow: "com.example/com.example.BottomActivity",
+        focusedPackage: "com.example",
+        focusedTaskId: 1,
       },
       {
         logicalId: 8,

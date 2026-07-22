@@ -147,6 +147,54 @@ export function parseLogicalDisplays(output: string): AndroidDisplay[] {
   return [...displays.values()].sort((a, b) => a.logicalId - b.logicalId);
 }
 
+export interface DisplayFocusSample {
+  logicalId: number;
+  focusedWindow?: string;
+  focusedActivity?: string;
+  focusedPackage?: string;
+  focusedTaskId?: number;
+}
+
+export function parseWindowFocus(output: string): DisplayFocusSample[] {
+  const byId = new Map<number, DisplayFocusSample>();
+  let displayId: number | undefined;
+
+  for (const line of output.split(/\r?\n/)) {
+    const displayMatch =
+      line.match(/^\s*Display:\s+mDisplayId=(\d+)/) ??
+      line.match(/DisplayContent\{.*?\s(\d+)\b/);
+    if (displayMatch?.[1]) displayId = Number(displayMatch[1]);
+    if (displayId === undefined) continue;
+
+    let sample = byId.get(displayId);
+    if (!sample) {
+      sample = { logicalId: displayId };
+      byId.set(displayId, sample);
+    }
+
+    const focus = line.match(
+      /mCurrentFocus=Window\{[^ ]+\s[^ ]+\s([^}]+)}/,
+    )?.[1];
+    // Common form: mFocusedApp=ActivityRecord{def u0 com.pkg/.Act} t12}
+    const focusedApp =
+      line.match(
+        /mFocusedApp=ActivityRecord\{[^}]*\s([A-Za-z0-9_.$]+\/[A-Za-z0-9_.$]+)\}\s*t(\d+)/,
+      ) ?? line.match(/mFocusedApp=.*?\s([A-Za-z0-9_.$]+\/[A-Za-z0-9_.$]+)/);
+
+    if (focus) sample.focusedWindow = focus;
+    const activity = focusedApp?.[1];
+    if (activity) {
+      sample.focusedActivity = activity;
+      const packageName = activity.split("/")[0];
+      if (packageName) sample.focusedPackage = packageName;
+    }
+    const taskId = Number(focusedApp?.[2]);
+    if (Number.isInteger(taskId)) sample.focusedTaskId = taskId;
+  }
+
+  return [...byId.values()].sort((a, b) => a.logicalId - b.logicalId);
+}
+
 export function correlatePhysicalDisplays(
   logical: AndroidDisplay[],
   physicalIds: string[],

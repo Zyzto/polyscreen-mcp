@@ -62,5 +62,10 @@ export const DEVICE_LIST =
   "List of devices attached\nserial-1 device product:test model:Test_Device device:test transport_id:1\n";
 
 export function addConnectedDevice(runner: FakeAdbRunner): FakeAdbRunner {
-  return runner.respond(["devices", "-l"], DEVICE_LIST);
+  return runner
+    .respond(["devices", "-l"], DEVICE_LIST)
+    .respond(["get-state"], "device", { serial: "serial-1" })
+    .respond(["shell", "getprop", "ro.serialno"], "TESTHW", {
+      serial: "serial-1",
+    });
 }

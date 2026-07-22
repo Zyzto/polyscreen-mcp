@@ -8,6 +8,17 @@ export interface AndroidDevice {
   model?: string;
   device?: string;
   transportId?: string;
+  /** False when a short ADB probe fails (stale mDNS / dropped TCP). */
+  reachable?: boolean;
+  /** Hardware serial from getprop when probed. */
+  hardwareSerial?: string;
+  /**
+   * Preferred serial for this hardware when duplicates exist
+   * (TCP IP:port preferred over adb-tls mDNS names).
+   */
+  preferredSerial?: string;
+  /** True when this entry is the preferred serial for its hardware group. */
+  preferred?: boolean;
 }
 
 export interface DisplayEvidence {
@@ -27,6 +38,8 @@ export interface AndroidDisplay {
   rotation?: number;
   focusedWindow?: string;
   focusedActivity?: string;
+  focusedPackage?: string;
+  focusedTaskId?: number;
   evidence: DisplayEvidence[];
 }
 

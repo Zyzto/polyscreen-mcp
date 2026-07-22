@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { abortableDelay } from "../utils/abortable-delay.js";
 import {
   AdbCommandError,
   AdbRunner,
@@ -13,6 +14,7 @@ import {
   parseLogicalDisplays,
   parsePhysicalDisplays,
   parseProperties,
+  parseWindowFocus,
 } from "./parsers.js";
 import type {
   AndroidDevice,
@@ -44,7 +46,78 @@ export class AndroidController {
   constructor(readonly adb = new AdbRunner()) {}
 
   async listDevices(signal?: AbortSignal): Promise<AndroidDevice[]> {
-    return parseDevices(await this.adb.text(["devices", "-l"], { signal }));
+    const devices = parseDevices(
+      await this.adb.text(["devices", "-l"], { signal }),
+    );
+    const probed = await Promise.all(
+      devices.map(async (device) => {
+        if (device.state !== "device") {
+          return { ...device, reachable: false, preferred: false };
+        }
+        try {
+          const [state, hardwareSerial] = await Promise.all([
+            this.adb.text(["get-state"], {
+              serial: device.serial,
+              signal,
+              timeoutMs: 3_000,
+            }),
+            this.adb
+              .text(["shell", "getprop", "ro.serialno"], {
+                serial: device.serial,
+                signal,
+                timeoutMs: 3_000,
+              })
+              .catch(() => ""),
+          ]);
+          return {
+            ...device,
+            reachable: state.trim() === "device",
+            ...(hardwareSerial.trim()
+              ? { hardwareSerial: hardwareSerial.trim() }
+              : {}),
+          };
+        } catch {
+          if (signal?.aborted) throw signal.reason;
+          return { ...device, reachable: false };
+        }
+      }),
+    );
+
+    const groups = new Map<string, AndroidDevice[]>();
+    for (const device of probed) {
+      const key =
+        device.hardwareSerial ||
+        `${device.product ?? ""}|${device.model ?? ""}|${device.device ?? ""}`;
+      const group = groups.get(key) ?? [];
+      group.push(device);
+      groups.set(key, group);
+    }
+
+    for (const group of groups.values()) {
+      if (group.length < 2) {
+        for (const device of group) {
+          device.preferred = device.reachable !== false;
+          device.preferredSerial = device.serial;
+        }
+        continue;
+      }
+      const ranked = [...group].sort(
+        (a, b) =>
+          Number(b.reachable) - Number(a.reachable) ||
+          Number(isTcpSerial(b.serial)) - Number(isTcpSerial(a.serial)) ||
+          a.serial.localeCompare(b.serial),
+      );
+      const preferred = ranked[0]!;
+      for (const device of group) {
+        device.preferredSerial = preferred.serial;
+        device.preferred = device.serial === preferred.serial;
+      }
+    }
+
+    return probed.sort((a, b) => {
+      if (a.preferred !== b.preferred) return a.preferred ? -1 : 1;
+      return a.serial.localeCompare(b.serial);
+    });
   }
 
   async requireDevice(
@@ -201,6 +274,190 @@ export class AndroidController {
       throw new Error("screencap did not return a PNG image");
     }
     return { png: result.stdout, display, durationMs: result.durationMs };
+  }
+
+  async captureScreenPair(
+    serial: string,
+    displayIds: number[],
+    signal?: AbortSignal,
+  ): Promise<{
+    serial: string;
+    captures: Array<{
+      displayId: number;
+      display: AndroidDisplay;
+      png: Buffer;
+      durationMs: number;
+    }>;
+    skewMs: number;
+  }> {
+    if (displayIds.length < 2) {
+      throw new Error("captureScreenPair requires at least two displayIds");
+    }
+    const unique = [...new Set(displayIds)];
+    const displays = await this.listDisplays(serial, signal);
+    const targets = unique.map((displayId) => {
+      const display = displays.find(
+        (candidate) => candidate.logicalId === displayId,
+      );
+      if (!display) {
+        throw new Error(
+          `Logical display ${displayId} is not available on ${serial}`,
+        );
+      }
+      if (!display.physicalId) {
+        throw new Error(
+          `Logical display ${displayId} has no correlated physical ID and cannot be captured by screencap`,
+        );
+      }
+      return display;
+    });
+
+    const started = performance.now();
+    const captures = await Promise.all(
+      targets.map(async (display) => {
+        const captureStarted = performance.now();
+        const args = ["exec-out", "screencap", "-p", "-d", display.physicalId!];
+        const result = await this.adb.run(args, {
+          serial,
+          signal,
+          timeoutMs: 20_000,
+          maxOutputBytes: 32 * 1024 * 1024,
+        });
+        if (!result.stdout.subarray(1, 4).equals(Buffer.from("PNG"))) {
+          throw new Error(
+            `screencap did not return a PNG image for display ${display.logicalId}`,
+          );
+        }
+        return {
+          displayId: display.logicalId,
+          display,
+          png: result.stdout,
+          durationMs: Math.round(performance.now() - captureStarted),
+        };
+      }),
+    );
+    return {
+      serial,
+      captures,
+      skewMs: Math.round(performance.now() - started),
+    };
+  }
+
+  async focusTrace(
+    serial: string,
+    displayIds: number[],
+    durationMs: number,
+    sampleIntervalMs = 100,
+    signal?: AbortSignal,
+  ): Promise<{
+    serial: string;
+    displayIds: number[];
+    durationMs: number;
+    sampleIntervalMs: number;
+    sampleCount: number;
+    samples: Array<{
+      tMs: number;
+      displays: Record<
+        string,
+        {
+          packageName?: string;
+          activity?: string;
+          taskId?: number;
+          focusedWindow?: string;
+        }
+      >;
+    }>;
+  }> {
+    await this.requireDevice(serial, signal);
+    if (displayIds.length === 0) {
+      throw new Error("focusTrace requires at least one displayId");
+    }
+    const unique = [...new Set(displayIds)];
+    const interval = Math.max(50, Math.min(5_000, sampleIntervalMs));
+    const deadline = Date.now() + Math.max(100, durationMs);
+    const startedAt = Date.now();
+    const samples: Array<{
+      tMs: number;
+      displays: Record<
+        string,
+        {
+          packageName?: string;
+          activity?: string;
+          taskId?: number;
+          focusedWindow?: string;
+        }
+      >;
+    }> = [];
+
+    while (true) {
+      signal?.throwIfAborted();
+      const tMs = Date.now() - startedAt;
+      const focus = await this.sampleFocus(serial, unique, signal);
+      samples.push({ tMs, displays: focus });
+      if (Date.now() >= deadline) break;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await abortableDelay(Math.min(interval, remaining), signal);
+    }
+
+    return {
+      serial,
+      displayIds: unique,
+      durationMs: Date.now() - startedAt,
+      sampleIntervalMs: interval,
+      sampleCount: samples.length,
+      samples,
+    };
+  }
+
+  async sampleFocus(
+    serial: string,
+    displayIds: number[],
+    signal?: AbortSignal,
+  ): Promise<
+    Record<
+      string,
+      {
+        packageName?: string;
+        activity?: string;
+        taskId?: number;
+        focusedWindow?: string;
+      }
+    >
+  > {
+    const output = await this.adb.text(
+      ["shell", "dumpsys", "window", "displays"],
+      { serial, signal, timeoutMs: 15_000, maxOutputBytes: 4 * 1024 * 1024 },
+    );
+    const wanted = new Set(displayIds);
+    const result: Record<
+      string,
+      {
+        packageName?: string;
+        activity?: string;
+        taskId?: number;
+        focusedWindow?: string;
+      }
+    > = {};
+    for (const sample of parseWindowFocus(output)) {
+      if (!wanted.has(sample.logicalId)) continue;
+      result[String(sample.logicalId)] = {
+        ...(sample.focusedPackage
+          ? { packageName: sample.focusedPackage }
+          : {}),
+        ...(sample.focusedActivity ? { activity: sample.focusedActivity } : {}),
+        ...(sample.focusedTaskId !== undefined
+          ? { taskId: sample.focusedTaskId }
+          : {}),
+        ...(sample.focusedWindow
+          ? { focusedWindow: sample.focusedWindow }
+          : {}),
+      };
+    }
+    for (const displayId of displayIds) {
+      result[String(displayId)] ??= {};
+    }
+    return result;
   }
 
   async uiSnapshot(
@@ -742,25 +999,18 @@ export class AndroidController {
   }
 
   private attachWindowFocus(displays: AndroidDisplay[], output: string): void {
-    let displayId: number | undefined;
-    for (const line of output.split(/\r?\n/)) {
-      const displayMatch =
-        line.match(/^\s*Display:\s+mDisplayId=(\d+)/) ??
-        line.match(/DisplayContent\{.*?\s(\d+)\b/);
-      if (displayMatch?.[1]) displayId = Number(displayMatch[1]);
-      if (displayId === undefined) continue;
+    for (const sample of parseWindowFocus(output)) {
       const display = displays.find(
-        (candidate) => candidate.logicalId === displayId,
+        (candidate) => candidate.logicalId === sample.logicalId,
       );
       if (!display) continue;
-      const focus = line.match(
-        /mCurrentFocus=Window\{[^ ]+\s[^ ]+\s([^}]+)}/,
-      )?.[1];
-      const app = line.match(
-        /mFocusedApp=.*?\s([A-Za-z0-9_.$]+\/[A-Za-z0-9_.$]+)/,
-      )?.[1];
-      if (focus) display.focusedWindow = focus;
-      if (app) display.focusedActivity = app;
+      if (sample.focusedWindow) display.focusedWindow = sample.focusedWindow;
+      if (sample.focusedActivity)
+        display.focusedActivity = sample.focusedActivity;
+      if (sample.focusedPackage) display.focusedPackage = sample.focusedPackage;
+      if (sample.focusedTaskId !== undefined) {
+        display.focusedTaskId = sample.focusedTaskId;
+      }
     }
   }
 
@@ -848,4 +1098,8 @@ export class AndroidController {
       return { supported: false, output: "", exitCode: -1 };
     }
   }
+}
+
+function isTcpSerial(serial: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(serial);
 }

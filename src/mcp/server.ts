@@ -6,6 +6,12 @@ import { z } from "zod";
 
 import { AdbProfiles } from "../android/adb-profiles.js";
 import { AndroidController } from "../android/android-controller.js";
+import { LogcatSessionManager } from "../android/logcat-sessions.js";
+import {
+  analyzeRecording,
+  resolveRecordingPath,
+} from "../android/recording-analyze.js";
+import { RecordingSessionManager } from "../android/record-sessions.js";
 import { findUiNodes, parseUiNodes } from "../android/ui.js";
 import { ArtifactStore } from "../artifacts/store.js";
 import { CompanionManager } from "../backends/companion.js";
@@ -23,6 +29,8 @@ export interface PolyScreenServerOptions {
   companion?: CompanionManager;
   adbProfiles?: AdbProfiles;
   artifacts?: ArtifactStore;
+  recordings?: RecordingSessionManager;
+  logcats?: LogcatSessionManager;
   profiles?: ReadonlySet<string>;
 }
 
@@ -52,10 +60,16 @@ export function createPolyScreenServer(
   const adbProfiles = options.adbProfiles ?? new AdbProfiles(controller.adb);
   const artifacts =
     options.artifacts ?? new ArtifactStore(adbProfiles.artifactRoot);
+  const recordings =
+    options.recordings ??
+    new RecordingSessionManager(controller.adb, adbProfiles.artifactRoot);
+  const logcats =
+    options.logcats ??
+    new LogcatSessionManager(controller.adb, adbProfiles.artifactRoot);
   const profiles = options.profiles ?? new Set(["core"]);
   const server = new McpServer({
     name: "polyscreen-mcp",
-    version: "0.2.5",
+    version: "0.3.0",
   });
 
   server.registerResource(
@@ -95,7 +109,7 @@ export function createPolyScreenServer(
     {
       title: "List Android devices",
       description:
-        "List ADB devices with exact serial, state, model, and transport metadata.",
+        "List ADB devices with reachability probes, hardware serial grouping, and preferred TCP serial when duplicates exist.",
       inputSchema: {},
       outputSchema: {
         devices: z.array(
@@ -106,6 +120,10 @@ export function createPolyScreenServer(
             model: z.string().optional(),
             device: z.string().optional(),
             transportId: z.string().optional(),
+            reachable: z.boolean().optional(),
+            hardwareSerial: z.string().optional(),
+            preferredSerial: z.string().optional(),
+            preferred: z.boolean().optional(),
           }),
         ),
       },
@@ -216,7 +234,7 @@ export function createPolyScreenServer(
     {
       title: "Record an Android display",
       description:
-        "Record one physical-backed display for a bounded duration and expose the MP4 as an artifact resource.",
+        "Blocking record of one physical-backed display for a bounded duration. Prefer mobile_record_start/mark/stop when input must be interleaved.",
       inputSchema: {
         serial: serialSchema,
         displayId: displayIdSchema,
@@ -256,6 +274,271 @@ export function createPolyScreenServer(
         ...recording,
       };
       return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_record_start",
+    {
+      title: "Start async display recording",
+      description:
+        "Start a non-blocking screenrecord on one logical display so input tools can run during capture. One active session per (serial, displayId).",
+      inputSchema: {
+        serial: serialSchema,
+        displayId: displayIdSchema,
+      },
+      outputSchema: {
+        recordId: z.string(),
+        pathHint: z.string(),
+        displayId: z.number(),
+        physicalDisplayId: z.string(),
+      },
+      annotations: { ...mutationAnnotations, openWorldHint: true },
+    },
+    async ({ serial, displayId }, extra) => {
+      await controller.requireDevice(serial, extra.signal);
+      const display = (
+        await controller.listDisplays(serial, extra.signal)
+      ).find((candidate) => candidate.logicalId === displayId);
+      if (!display)
+        throw new Error(`Logical display ${displayId} is unavailable`);
+      if (!display.physicalId) {
+        throw new Error(
+          `Logical display ${displayId} has no recordable physical display`,
+        );
+      }
+      const result = await recordings.start(
+        serial,
+        displayId,
+        display.physicalId,
+        extra.signal,
+      );
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_record_mark",
+    {
+      title: "Mark async recording timeline",
+      description:
+        "Attach a labeled timestamp (offsetMs from record start) for later correlation with analyze/focus/logcat.",
+      inputSchema: {
+        serial: serialSchema,
+        recordId: z.string().uuid(),
+        label: z
+          .string()
+          .regex(/^[A-Za-z0-9_.:-]{1,64}$/)
+          .describe("Timeline label, e.g. pre-launch, press-a, home"),
+      },
+      outputSchema: {
+        recordId: z.string(),
+        label: z.string(),
+        offsetMs: z.number(),
+      },
+      annotations: mutationAnnotations,
+    },
+    async ({ serial, recordId, label }) => {
+      const mark = recordings.mark(serial, recordId, label);
+      const result = { recordId, ...mark };
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_record_stop",
+    {
+      title: "Stop async display recording",
+      description:
+        "Stop screenrecord with SIGINT, pull the MP4 into artifacts, and return marks with offsets.",
+      inputSchema: {
+        serial: serialSchema,
+        recordId: z.string().uuid(),
+      },
+      outputSchema: {
+        recordId: z.string(),
+        serial: z.string(),
+        displayId: z.number(),
+        physicalDisplayId: z.string(),
+        path: z.string(),
+        artifactUri: z.string(),
+        sizeBytes: z.number(),
+        durationMs: z.number(),
+        marks: z.array(z.object({ label: z.string(), offsetMs: z.number() })),
+      },
+      annotations: { ...mutationAnnotations, openWorldHint: true },
+    },
+    async ({ serial, recordId }, extra) => {
+      const result = {
+        ...(await recordings.stop(serial, recordId, extra.signal)),
+      };
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_analyze_recording",
+    {
+      title: "Analyze recording for black/dim frames",
+      description:
+        "Sample mean grayscale over an MP4 (ffmpeg), detect black/dim runs, classify brightness buckets, and optionally export sample PNGs at anomalies and marks.",
+      inputSchema: {
+        serial: serialSchema.optional(),
+        path: z.string().min(1).optional(),
+        artifactUri: z.string().min(1).optional(),
+        fps: z.number().int().min(1).max(60).default(30),
+        blackThreshold: z.number().min(0).max(255).default(40),
+        dimThreshold: z.number().min(0).max(255).default(80),
+        exportSampleFrames: z.boolean().default(false),
+        marks: z
+          .array(z.object({ label: z.string(), offsetMs: z.number() }))
+          .optional(),
+      },
+      outputSchema: {
+        path: z.string(),
+        durationMs: z.number(),
+        frameCount: z.number(),
+        blackFrameCount: z.number(),
+        dimFrameCount: z.number(),
+        maxBlackRunMs: z.number(),
+        firstBlackOffsetMs: z.number().nullable(),
+        lastBlackOffsetMs: z.number().nullable(),
+        meanGrayTimeline: z.array(z.record(z.string(), z.unknown())),
+        marks: z.array(z.object({ label: z.string(), offsetMs: z.number() })),
+        samples: z.array(z.record(z.string(), z.unknown())),
+        bucketCounts: z.record(z.string(), z.number()),
+      },
+      annotations: readAnnotations,
+    },
+    async ({
+      path,
+      artifactUri,
+      fps,
+      blackThreshold,
+      dimThreshold,
+      exportSampleFrames,
+      marks,
+    }) => {
+      if (!path && !artifactUri) {
+        throw new Error("Provide path or artifactUri");
+      }
+      const resolved = await resolveRecordingPath(
+        { path, artifactUri },
+        adbProfiles.artifactRoot,
+      );
+      const result = {
+        ...(await analyzeRecording(resolved, {
+          fps,
+          blackThreshold,
+          dimThreshold,
+          exportSampleFrames,
+          marks,
+          artifactRoot: adbProfiles.artifactRoot,
+        })),
+      };
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_focus_trace",
+    {
+      title: "Trace focused package/activity per display",
+      description:
+        "Sample focused package, activity, and taskId over time for the requested logical displays (alignable with record marks).",
+      inputSchema: {
+        serial: serialSchema,
+        displayIds: z.array(displayIdSchema).min(1).max(16),
+        durationMs: z.number().int().min(100).max(180_000),
+        sampleIntervalMs: z.number().int().min(50).max(5_000).default(100),
+      },
+      outputSchema: {
+        serial: z.string(),
+        displayIds: z.array(z.number()),
+        durationMs: z.number(),
+        sampleIntervalMs: z.number(),
+        sampleCount: z.number(),
+        samples: z.array(z.record(z.string(), z.unknown())),
+      },
+      annotations: readAnnotations,
+    },
+    async ({ serial, displayIds, durationMs, sampleIntervalMs }, extra) => {
+      const result = await controller.focusTrace(
+        serial,
+        displayIds,
+        durationMs,
+        sampleIntervalMs,
+        extra.signal,
+      );
+      return { content: jsonContent(result), structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "mobile_screen_capture_pair",
+    {
+      title: "Capture paired Android displays",
+      description:
+        "Capture multiple logical displays as tightly paired same-moment screenshots (parallel screencap after one display resolve).",
+      inputSchema: {
+        serial: serialSchema,
+        displayIds: z.array(displayIdSchema).min(2).max(8),
+        saveArtifact: z.boolean().default(false),
+      },
+      outputSchema: {
+        serial: z.string(),
+        skewMs: z.number(),
+        captures: z.array(
+          z.object({
+            displayId: z.number(),
+            mimeType: z.literal("image/png"),
+            sizeBytes: z.number(),
+            durationMs: z.number(),
+            artifactUri: z.string().optional(),
+          }),
+        ),
+      },
+      annotations: mutationAnnotations,
+    },
+    async ({ serial, displayIds, saveArtifact }, extra) => {
+      const pair = await controller.captureScreenPair(
+        serial,
+        displayIds,
+        extra.signal,
+      );
+      const captures = [];
+      const content: Array<
+        | { type: "image"; data: string; mimeType: "image/png" }
+        | { type: "text"; text: string }
+      > = [];
+      for (const capture of pair.captures) {
+        const artifact = saveArtifact
+          ? await artifacts.save(
+              capture.png,
+              ".png",
+              `display-${capture.displayId}`,
+            )
+          : undefined;
+        captures.push({
+          displayId: capture.displayId,
+          mimeType: "image/png" as const,
+          sizeBytes: capture.png.length,
+          durationMs: capture.durationMs,
+          ...(artifact ? { artifactUri: artifact.uri } : {}),
+        });
+        content.push({
+          type: "image",
+          data: capture.png.toString("base64"),
+          mimeType: "image/png",
+        });
+      }
+      const metadata = {
+        serial: pair.serial,
+        skewMs: pair.skewMs,
+        captures,
+      };
+      content.push(...jsonContent(metadata));
+      return { content, structuredContent: metadata };
     },
   );
 
@@ -727,6 +1010,78 @@ export function createPolyScreenServer(
         return { content: jsonContent(result), structuredContent: result };
       },
     );
+
+    server.registerTool(
+      "mobile_logcat_start",
+      {
+        title: "Start scoped logcat session",
+        description:
+          "Start a streaming logcat capture cleared to now. Optionally bind to a recordId and filter by tags/packages.",
+        inputSchema: {
+          serial: serialSchema,
+          tags: z.array(z.string()).max(50).default([]),
+          packages: z.array(packageSchema).max(20).default([]),
+          buffer: z
+            .enum(["main", "system", "crash", "events", "radio"])
+            .default("main"),
+          minimumPriority: z.enum(["V", "D", "I", "W", "E", "F"]).default("I"),
+          boundRecordId: z.string().uuid().optional(),
+        },
+        outputSchema: {
+          logSessionId: z.string(),
+          pathHint: z.string(),
+        },
+        annotations: { ...mutationAnnotations, openWorldHint: true },
+      },
+      async (
+        { serial, tags, packages, buffer, minimumPriority, boundRecordId },
+        extra,
+      ) => {
+        await controller.requireDevice(serial, extra.signal);
+        if (boundRecordId && !recordings.get(boundRecordId)) {
+          throw new Error(`Unknown bound recordId: ${boundRecordId}`);
+        }
+        const result = await logcats.start(
+          serial,
+          { tags, packages, buffer, minimumPriority },
+          { boundRecordId },
+        );
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_logcat_stop",
+      {
+        title: "Stop scoped logcat session",
+        description:
+          "Stop a streaming logcat session and return the captured lines (optionally package-filtered).",
+        inputSchema: {
+          serial: serialSchema,
+          logSessionId: z.string().uuid(),
+          maxLines: z.number().int().min(1).max(20_000).default(2_000),
+        },
+        outputSchema: {
+          logSessionId: z.string(),
+          serial: z.string(),
+          path: z.string(),
+          artifactUri: z.string(),
+          sizeBytes: z.number(),
+          durationMs: z.number(),
+          lines: z.array(z.string()),
+          lineCount: z.number(),
+          truncated: z.boolean(),
+          boundRecordId: z.string().optional(),
+        },
+        annotations: mutationAnnotations,
+      },
+      async ({ serial, logSessionId, maxLines }) => {
+        const result = {
+          ...(await logcats.stop(serial, logSessionId, { maxLines })),
+        };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
   }
 
   if (profiles.has("apps") || profiles.has("all")) {
@@ -1010,7 +1365,11 @@ export function createPolyScreenServer(
 
   const closeServer = server.close.bind(server);
   server.close = async (): Promise<void> => {
-    await companion.stopAll();
+    await Promise.allSettled([
+      recordings.stopAll(),
+      logcats.stopAll(),
+      companion.stopAll(),
+    ]);
     await closeServer();
   };
 
