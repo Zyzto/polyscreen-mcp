@@ -83,11 +83,8 @@ describe("FocusTraceSessionManager", () => {
         },
       },
     ]);
-    expect(changes).toHaveLength(2);
-    expect(changes[0]?.displays["4"]?.to.packageName).toBe(
-      "com.android.launcher3",
-    );
-    expect(changes[1]?.displays["4"]).toMatchObject({
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.displays["4"]).toMatchObject({
       from: { packageName: "com.android.launcher3" },
       to: { packageName: "com.game" },
     });

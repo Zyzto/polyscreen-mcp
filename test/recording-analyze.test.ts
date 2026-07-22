@@ -220,4 +220,12 @@ describe("recording analysis", () => {
       ),
     ).rejects.toThrow(/Invalid artifactUri|escapes/);
   });
+
+  it("rejects absolute paths outside the artifact root", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "polyscreen-analyze-"));
+    cleanups.push(async () => rm(dir, { recursive: true, force: true }));
+    await expect(
+      resolveRecordingPath({ path: "/etc/passwd" }, dir),
+    ).rejects.toThrow(/escapes artifact root/);
+  });
 });

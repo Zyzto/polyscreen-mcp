@@ -36,6 +36,7 @@ export interface ActiveLogcatSession {
   pidRefresh?: ReturnType<typeof setInterval> | undefined;
   pidRefreshInFlight?: Promise<void> | undefined;
   boundRecordId?: string | undefined;
+  boundRecordStartedAtMs?: number | undefined;
 }
 
 export interface StoppedLogcatSession {
@@ -51,6 +52,8 @@ export interface StoppedLogcatSession {
   lineCount: number;
   truncated: boolean;
   boundRecordId?: string | undefined;
+  /** Host ISO when the bound recording started — join with session bounds, not per-line. */
+  boundRecordStartedAtIso?: string | undefined;
 }
 
 export interface LogcatSessionStatus {
@@ -112,11 +115,16 @@ export class LogcatSessionManager {
   async start(
     serial: string,
     filters: LogcatFilters = {},
-    options: { boundRecordId?: string | undefined } = {},
+    options: {
+      boundRecordId?: string | undefined;
+      boundRecordStartedAtMs?: number | undefined;
+    } = {},
   ): Promise<{
     logSessionId: string;
     pathHint: string;
     startedAtIso: string;
+    boundRecordId?: string | undefined;
+    boundRecordStartedAtIso?: string | undefined;
   }> {
     const tags = filters.tags ?? [];
     const packages = filters.packages ?? [];
@@ -197,6 +205,9 @@ export class LogcatSessionManager {
       ...(options.boundRecordId
         ? { boundRecordId: options.boundRecordId }
         : {}),
+      ...(options.boundRecordStartedAtMs !== undefined
+        ? { boundRecordStartedAtMs: options.boundRecordStartedAtMs }
+        : {}),
     };
 
     if (packageSet && packagePids) {
@@ -219,6 +230,16 @@ export class LogcatSessionManager {
       logSessionId,
       pathHint,
       startedAtIso: new Date(startedAtMs).toISOString(),
+      ...(options.boundRecordId
+        ? { boundRecordId: options.boundRecordId }
+        : {}),
+      ...(options.boundRecordStartedAtMs !== undefined
+        ? {
+            boundRecordStartedAtIso: new Date(
+              options.boundRecordStartedAtMs,
+            ).toISOString(),
+          }
+        : {}),
     };
   }
 
@@ -295,6 +316,13 @@ export class LogcatSessionManager {
         truncated,
         ...(session.boundRecordId
           ? { boundRecordId: session.boundRecordId }
+          : {}),
+        ...(session.boundRecordStartedAtMs !== undefined
+          ? {
+              boundRecordStartedAtIso: new Date(
+                session.boundRecordStartedAtMs,
+              ).toISOString(),
+            }
           : {}),
       };
     } finally {

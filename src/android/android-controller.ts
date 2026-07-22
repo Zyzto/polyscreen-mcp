@@ -400,6 +400,16 @@ export class AndroidController {
     > = {};
     for (const sample of parseWindowFocus(output)) {
       if (!wanted.has(sample.logicalId)) continue;
+      // Omit displays with no focus evidence — do not invent empty {} states
+      // that look like focus loss during dump/parser flakes.
+      if (
+        !sample.focusedPackage &&
+        !sample.focusedActivity &&
+        !sample.focusedWindow &&
+        sample.focusedTaskId === undefined
+      ) {
+        continue;
+      }
       result[String(sample.logicalId)] = {
         ...(sample.focusedPackage
           ? { packageName: sample.focusedPackage }
@@ -412,9 +422,6 @@ export class AndroidController {
           ? { focusedWindow: sample.focusedWindow }
           : {}),
       };
-    }
-    for (const displayId of displayIds) {
-      result[String(displayId)] ??= {};
     }
     return result;
   }

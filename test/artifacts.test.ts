@@ -55,4 +55,20 @@ describe("ArtifactStore", () => {
     expect(pruned.deleted).toHaveLength(2);
     expect(await store.list()).toHaveLength(1);
   });
+
+  it("does not wipe sample dirs on maxCount-only prune", async () => {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const root = await mkdtemp(join(tmpdir(), "polyscreen-artifacts-"));
+    roots.push(root);
+    const store = new ArtifactStore(root);
+    await store.save(Buffer.from("a"), ".txt", "a");
+    await store.save(Buffer.from("b"), ".txt", "b");
+    const samples = join(root, "clip-samples");
+    await mkdir(samples);
+    await writeFile(join(samples, "frame.png"), Buffer.from("png"));
+
+    await store.prune({ maxCount: 1, dryRun: false });
+    const { stat } = await import("node:fs/promises");
+    expect((await stat(samples)).isDirectory()).toBe(true);
+  });
 });

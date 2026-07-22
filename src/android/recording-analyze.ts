@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
 export interface AnalyzeMark {
@@ -338,31 +338,36 @@ export async function resolveRecordingPath(
   input: { path?: string | undefined; artifactUri?: string | undefined },
   artifactRoot: string,
 ): Promise<string> {
-  if (input.path) return input.path;
-  if (!input.artifactUri) {
+  if (!input.path && !input.artifactUri) {
     throw new Error("Provide path or artifactUri");
   }
-  const match = input.artifactUri.match(/^mobile:\/\/artifacts\/(.+)$/);
-  if (!match?.[1]) {
-    throw new Error(`Unsupported artifactUri: ${input.artifactUri}`);
+  const root = await realpath(artifactRoot).catch(() => resolve(artifactRoot));
+  let candidate: string;
+  if (input.path) {
+    candidate = resolve(input.path);
+  } else {
+    const match = input.artifactUri!.match(/^mobile:\/\/artifacts\/(.+)$/);
+    if (!match?.[1]) {
+      throw new Error(`Unsupported artifactUri: ${input.artifactUri}`);
+    }
+    const name = decodeURIComponent(match[1]);
+    if (
+      name !== basename(name) ||
+      name.includes("\0") ||
+      name === "." ||
+      name === ".."
+    ) {
+      throw new Error(`Invalid artifactUri name: ${input.artifactUri}`);
+    }
+    candidate = resolve(artifactRoot, name);
   }
-  const name = decodeURIComponent(match[1]);
-  if (
-    name !== basename(name) ||
-    name.includes("\0") ||
-    name === "." ||
-    name === ".."
-  ) {
-    throw new Error(`Invalid artifactUri name: ${input.artifactUri}`);
+
+  // Prefer realpath so symlink escapes cannot leave the artifact root.
+  const checked = await realpath(candidate).catch(() => candidate);
+  if (checked !== root && !checked.startsWith(root + sep)) {
+    throw new Error(`Recording path escapes artifact root: ${candidate}`);
   }
-  const resolved = resolve(artifactRoot, name);
-  const root = resolve(artifactRoot);
-  if (resolved !== root && !resolved.startsWith(root + sep)) {
-    throw new Error(
-      `Artifact path escapes artifact root: ${input.artifactUri}`,
-    );
-  }
-  return resolved;
+  return checked;
 }
 
 async function loadSidecarMarks(path: string): Promise<AnalyzeMark[]> {

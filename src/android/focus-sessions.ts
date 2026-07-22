@@ -277,20 +277,6 @@ export function summarizeFocusChanges(
   let previous: FocusSamplePoint | undefined;
   for (const sample of samples) {
     if (!previous) {
-      const displays: FocusChangeEvent["displays"] = {};
-      for (const [displayId, to] of Object.entries(sample.displays)) {
-        displays[displayId] = { to };
-      }
-      if (Object.keys(displays).length > 0) {
-        changes.push({
-          tMs: sample.tMs,
-          wallClockIso: sample.wallClockIso,
-          displays,
-          ...(sample.recordOffsetMs !== undefined
-            ? { recordOffsetMs: sample.recordOffsetMs }
-            : {}),
-        });
-      }
       previous = sample;
       continue;
     }
@@ -301,8 +287,10 @@ export function summarizeFocusChanges(
       ...Object.keys(sample.displays),
     ]);
     for (const displayId of ids) {
-      const from = previous.displays[displayId] ?? {};
-      const to = sample.displays[displayId] ?? {};
+      const from = previous.displays[displayId];
+      const to = sample.displays[displayId];
+      // Skip incomplete samples so dump flakes do not look like focus loss.
+      if (from === undefined || to === undefined) continue;
       if (!sameFocusState(from, to)) {
         displays[displayId] = { from, to };
       }

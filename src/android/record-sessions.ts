@@ -248,13 +248,15 @@ export class RecordingSessionManager {
     session.stoppedAtMs = stoppedAtMs;
     const durationMs = Math.max(0, stoppedAtMs - session.startedAtMs);
 
+    // Only signal when cmdline still identifies *this* screenrecord. Never kill
+    // on "uncertain" — PID reuse after time-limit exit is worse than a pull retry.
     if (
       (await this.probeScreenrecordPid(
         serial,
         session.remotePid,
         session.remotePath,
         signal,
-      )) !== "gone"
+      )) === "ours"
     ) {
       await this.adb
         .run(["shell", "kill", "-INT", String(session.remotePid)], {
@@ -269,16 +271,13 @@ export class RecordingSessionManager {
     const deadline = Date.now() + 5_000;
     let delayMs = 50;
     while (Date.now() < deadline) {
-      if (
-        (await this.probeScreenrecordPid(
-          serial,
-          session.remotePid,
-          session.remotePath,
-          signal,
-        )) === "gone"
-      ) {
-        break;
-      }
+      const status = await this.probeScreenrecordPid(
+        serial,
+        session.remotePid,
+        session.remotePath,
+        signal,
+      );
+      if (status !== "ours") break;
       await abortableDelay(delayMs, signal);
       delayMs = Math.min(800, delayMs * 2);
     }
@@ -288,7 +287,7 @@ export class RecordingSessionManager {
         session.remotePid,
         session.remotePath,
         signal,
-      )) !== "gone"
+      )) === "ours"
     ) {
       await this.adb
         .run(["shell", "kill", "-KILL", String(session.remotePid)], {
@@ -372,7 +371,7 @@ export class RecordingSessionManager {
         session.serial,
         session.remotePid,
         session.remotePath,
-      )) !== "gone"
+      )) === "ours"
     ) {
       await this.adb
         .run(["shell", "kill", "-KILL", String(session.remotePid)], {

@@ -135,16 +135,22 @@ export class ArtifactStore {
       deleted.push(name);
     }
 
-    // Any prune also drops exported sample directories (not listed as file artifacts).
-    for (const name of await readdir(this.root)) {
-      if (!SAMPLE_DIR.test(name)) continue;
-      try {
-        const path = join(this.root, name);
-        if (!(await stat(path)).isDirectory()) continue;
-        if (!dryRun) await rm(path, { recursive: true, force: true });
-        deleted.push(`${name}/`);
-      } catch {
-        // Ignore unreadable entries.
+    // Sample dirs are not file artifacts; prune them only by maxAgeMs so a
+    // count-based prune does not wipe freshly exported analysis frames.
+    if (options.maxAgeMs !== undefined) {
+      for (const name of await readdir(this.root)) {
+        if (!SAMPLE_DIR.test(name)) continue;
+        try {
+          const path = join(this.root, name);
+          const details = await stat(path);
+          if (!details.isDirectory()) continue;
+          const age = now - details.mtimeMs;
+          if (!(Number.isFinite(age) && age > options.maxAgeMs)) continue;
+          if (!dryRun) await rm(path, { recursive: true, force: true });
+          deleted.push(`${name}/`);
+        } catch {
+          // Ignore unreadable entries.
+        }
       }
     }
 

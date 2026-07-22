@@ -1,6 +1,6 @@
 {
   "name": "polyscreen-mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Capability-driven Android automation MCP server with first-class multi-display and gamepad support",
   "type": "module",
   "license": "Apache-2.0",
@@ -50,7 +50,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:device": "pnpm build && node scripts/device-acceptance.mjs",
-    "test:thor:destructive": "pnpm build && gradle -p companion :fixture:assembleDebug && node scripts/thor-destructive.mjs",
+    "test:device:destructive": "pnpm build && gradle -p companion :fixture:assembleDebug && node scripts/thor-destructive.mjs",
+    "test:thor:destructive": "pnpm test:device:destructive",
     "test:watch": "vitest",
     "prepublishOnly": "pnpm check && pnpm build"
   },

@@ -66,19 +66,13 @@ The default `core` profile is deliberately compact. Additional profiles advertis
   "mcpServers": {
     "polyscreen": {
       "command": "npx",
-      "args": [
-        "-y",
-        "polyscreen-mcp@latest",
-        "--profile",
-        "core",
-        "diagnostics"
-      ]
+      "args": ["-y", "polyscreen-mcp@0.4.2", "--profile", "core", "diagnostics"]
     }
   }
 }
 ```
 
-Prefer pinning a released version (e.g. `polyscreen-mcp@0.4.1`) instead of `@latest` once a workflow is stable. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. If the tool list looks stale, toggle the server off/on in Cursor MCP settings so `list_changed` is applied.
+The example pins `0.4.2`. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. If the tool list looks stale, toggle the server off/on in Cursor MCP settings so `list_changed` is applied.
 
 `diagnostics` is required for logcat start/stop, activity tops, wake, and night-mode tools.
 
@@ -169,13 +163,13 @@ Calibrate with `exportSampleFrames` on the device under test — thresholds alon
 
 Record/focus sessions share wall-clock ISO timestamps from host `Date.now()`. Logcat session bounds use host ISO; individual lines keep Android `threadtime`:
 
-| Source         | Fields                                                                                                |
-| -------------- | ----------------------------------------------------------------------------------------------------- |
-| Record marks   | `offsetMs` from record start, `wallClockIso`                                                          |
-| Focus samples  | `tMs` from focus session start, `wallClockIso`, optional `recordOffsetMs` when `boundRecordId` is set |
-| Logcat session | `startedAtIso` / `stoppedAtIso`; each line keeps Android `threadtime`                                 |
+| Source         | Fields                                                                                                            |
+| -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Record marks   | `offsetMs` from record start, `wallClockIso`                                                                      |
+| Focus samples  | `tMs` from focus session start, `wallClockIso`, optional `recordOffsetMs` when `boundRecordId` is set             |
+| Logcat session | Host `startedAtIso` / `stoppedAtIso` (+ optional `boundRecordStartedAtIso`); each line keeps Android `threadtime` |
 
-Join on `wallClockIso` (absolute) or on `recordOffsetMs` / mark `offsetMs` when sessions are bound to the same `recordId`.
+Join record marks and focus on `wallClockIso` or `recordOffsetMs` when `boundRecordId` is set. Logcat lines are device `threadtime` — correlate the session window to the bound recording via `boundRecordStartedAtIso` / host session bounds, not per-line `recordOffsetMs`.
 
 ### Focus timeline
 
@@ -327,8 +321,8 @@ Occasional `Logical display N is not available` flakes on multi-display handheld
 The generic suite is read-mostly. It captures requested displays and can optionally record, inspect one package, and exercise an already-installed companion:
 
 ```bash
-POLYSCREEN_DEVICE=<serial> \
-POLYSCREEN_DISPLAY_IDS=0,4 \
+POLYSCREEN_DEVICE=<serial-from-devices_list> \
+POLYSCREEN_DISPLAY_IDS=<ids-from-displays_list> \
 POLYSCREEN_RECORD=1 \
 POLYSCREEN_TEST_PACKAGE=com.example.app \
 POLYSCREEN_COMPANION=1 \
@@ -338,10 +332,10 @@ pnpm test:device
 The destructive suite uses a dedicated integration-fixture APK, separate from the production companion. It installs and launches the fixture, verifies tap/swipe/drag/text input, grants and revokes CAMERA, force-stops the fixture, and uninstalls it during cleanup:
 
 ```bash
-POLYSCREEN_DEVICE=<serial> \
-POLYSCREEN_DISPLAY_ID=0 \
+POLYSCREEN_DEVICE=<serial-from-devices_list> \
+POLYSCREEN_DISPLAY_ID=<id-from-displays_list> \
 POLYSCREEN_ALLOW_DESTRUCTIVE=1 \
-pnpm test:thor:destructive
+pnpm test:device:destructive
 ```
 
 The destructive suite refuses to run without the acknowledgement variable and never chooses a device serial implicitly. Override `POLYSCREEN_FIXTURE_APK` when testing an externally built fixture.

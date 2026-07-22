@@ -1584,7 +1584,10 @@ export function createPolyScreenServer(
         const result = await logcats.start(
           serial,
           { tags, packages, buffer, minimumPriority },
-          { boundRecordId: bound?.recordId },
+          {
+            boundRecordId: bound?.recordId,
+            ...(bound ? { boundRecordStartedAtMs: bound.startedAtMs } : {}),
+          },
         );
         return { content: jsonContent(result), structuredContent: result };
       },
@@ -1595,7 +1598,7 @@ export function createPolyScreenServer(
       {
         title: "Stop scoped logcat session",
         description:
-          "Stop a streaming logcat session and return the captured lines (optionally package-filtered).",
+          "Stop a streaming logcat session and return the captured lines. Lines keep Android threadtime; join to a recording via boundRecordStartedAtIso / session startedAtIso (not per-line recordOffsetMs).",
         inputSchema: {
           serial: serialSchema,
           logSessionId: z.string().uuid(),
@@ -1614,6 +1617,7 @@ export function createPolyScreenServer(
           lineCount: z.number(),
           truncated: z.boolean(),
           boundRecordId: z.string().optional(),
+          boundRecordStartedAtIso: z.string().optional(),
         },
         annotations: mutationAnnotations,
       },
