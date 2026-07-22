@@ -67,9 +67,17 @@ describe("MCP server contract", () => {
       toolNames: string[];
       profiles: string[];
     };
+    const listed = (await client.listTools()).tools
+      .map((tool) => tool.name)
+      .sort();
     expect(info.version).toBe(PACKAGE_VERSION);
     expect(info.profiles).toEqual(["core"]);
     expect(info.toolCount).toBe(info.toolNames.length);
-    expect(info.toolNames).toContain("mobile_analyze_recording");
+    expect(info.toolCount).toBe(listed.length);
+    expect([...info.toolNames].sort()).toEqual(listed);
+    expect(info.toolNames).toEqual(server.listRegisteredTools());
+    for (const tool of CORE_DETECTIVE_TOOLS) {
+      expect(info.toolNames).toContain(tool);
+    }
   });
 });

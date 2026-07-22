@@ -66,13 +66,19 @@ The default `core` profile is deliberately compact. Additional profiles advertis
   "mcpServers": {
     "polyscreen": {
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.4.0", "--profile", "core", "diagnostics"]
+      "args": [
+        "-y",
+        "polyscreen-mcp@latest",
+        "--profile",
+        "core",
+        "diagnostics"
+      ]
     }
   }
 }
 ```
 
-Pin a version (e.g. `polyscreen-mcp@0.4.0`) in Cursor `mcp.json` so reconnects do not silently pull a different `@latest`. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version` plus detective tools (`mobile_analyze_recording`, `mobile_theme_flash_report`, focus/record session tools). If the tool list looks stale, toggle the server off/on in Cursor MCP settings so `list_changed` is applied.
+Prefer pinning a released version (e.g. `polyscreen-mcp@0.4.1`) instead of `@latest` once a workflow is stable. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. If the tool list looks stale, toggle the server off/on in Cursor MCP settings so `list_changed` is applied.
 
 `diagnostics` is required for logcat start/stop, activity tops, wake, and night-mode tools.
 
@@ -146,18 +152,18 @@ Compact fields always returned: counts, `blackRuns`/`dimRuns`, marks, `timelineS
 
 `mobile_theme_flash_report` reads night mode, runs `mode: "flash"` analysis, and lists marks whose offsets fall inside any reported black/dim run (± `markWindowMs`). Run lists are capped (`blackRunsTruncated` / `dimRunsTruncated`).
 
-Buckets:
+Buckets (OEM-agnostic heuristics; mean-gray ranges are examples, not universal truth):
 
-| Bucket                 | Typical mean gray | Meaning                               |
-| ---------------------- | ----------------- | ------------------------------------- |
-| `true_black`           | ~0–15             | Empty / HWC black                     |
-| `near_black_content`   | ~16–29            | Near-black splash/content (not empty) |
-| `system_launcher_idle` | ~30–55            | Idle system launcher / wallpaper band |
-| `dark_app_ui`          | ~56–119           | Dark theme / dark splash              |
-| `light_app_ui`         | ~190–230          | Light app UI                          |
-| `other`                | remainder         | Unclassified                          |
+| Bucket                 | Example mean gray | Meaning                                    |
+| ---------------------- | ----------------- | ------------------------------------------ |
+| `true_black`           | ~0–15             | Empty / compositor black                   |
+| `near_black_content`   | ~16–29            | Near-black splash/content (not empty)      |
+| `system_launcher_idle` | ~30–55            | Mid-gray idle chrome / wallpaper-like band |
+| `dark_app_ui`          | ~56–119           | Dark theme / dark splash                   |
+| `light_app_ui`         | ~190–230          | Light app UI                               |
+| `other`                | remainder         | Unclassified                               |
 
-Use `exportSampleFrames: true` when asserting regressions — thresholds alone are insufficient.
+Calibrate with `exportSampleFrames` on the device under test — thresholds alone are insufficient for regressions.
 
 ### Time bases (joining record / focus / logcat)
 
@@ -196,15 +202,24 @@ Stop results include `changes` / `changeCount` (focus transitions per display) �
 
 `mobile_app_launch` / `mobile_app_stop` / `mobile_app_relaunch_on_displays` cover per-package force-stop and display-targeted launch (including stop→launch recipes across multiple logical displays). `mobile_broadcast_send` (apps profile) covers app debug actions.
 
-### Visual regression workflow
+### Visual regression workflow (device-agnostic)
 
-1. `mobile_server_info` — confirm version and tools
-2. `mobile_record_start` on the display under test
-3. Optional `mobile_logcat_start` + `mobile_focus_trace_start` with `boundRecordId`
-4. `mobile_record_mark` → input (gamepad / tap / HOME) → `mobile_record_mark`
-5. Stop focus/logcat → `mobile_record_stop`
-6. `mobile_analyze_recording` with `mode: "flash"` (or `mobile_theme_flash_report` when night mode matters)
-7. Fail if `blackFrameCount > 0` (HWC/empty black at default threshold 16), or focus shows the stock launcher on the secondary display during Home. Treat `system_launcher_idle` as a separate bucket — idle launcher wallpaper is not a black flash.
+Always discover IDs at runtime. Never hardcode serials, logical display IDs, launcher packages, or OEM model names.
+
+1. `mobile_devices_list` → pick a `reachable` / `preferred` serial
+2. `mobile_displays_list` → note the logical `displayId`(s) under test
+3. `mobile_server_info` — confirm `version` and detective tools after reconnect
+4. `mobile_record_start` on the logical display under test
+5. Optional (diagnostics): `mobile_logcat_start` with `boundRecordId`
+6. `mobile_focus_trace_start` for the relevant `displayIds` (optionally same `boundRecordId`)
+7. `mobile_record_mark` → input (tap / key / gamepad / HOME) → `mobile_record_mark`
+8. Stop focus/logcat → `mobile_record_stop`
+9. `mobile_analyze_recording` with `mode: "flash"` and/or `mobile_theme_flash_report`
+10. Assert: no unexpected `hasBlackFlash` / `true_black` runs; use focus `changes` to see if another package briefly owned the display. Treat `system_launcher_idle` as mid-gray idle chrome — not a black flash.
+
+### Optional cookbook: dual-display handhelds
+
+Some handhelds expose two logical displays (for example internal + presentation). After `mobile_displays_list`, pass both IDs to `mobile_focus_trace_start` / `mobile_screen_capture_pair` / `mobile_app_relaunch_on_displays`. Use `mobile_sessions_status` if a reconnect loses session IDs. These devices are stress cases for the same APIs — not a separate tool surface.
 
 ## Multi-display model
 

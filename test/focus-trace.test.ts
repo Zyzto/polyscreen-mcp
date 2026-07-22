@@ -12,8 +12,8 @@ const WINDOW_DUMP = `
     mCurrentFocus=Window{abc u0 com.android.launcher3/com.android.launcher3.SecondaryDisplayLauncher}
     mFocusedApp=ActivityRecord{def u0 com.android.launcher3/.SecondaryDisplayLauncher} t9}
   Display: mDisplayId=0
-    mCurrentFocus=Window{ghi u0 com.wajiha/com.wajiha.MainActivity}
-    mFocusedApp=ActivityRecord{jkl u0 com.wajiha/.MainActivity} t3}
+    mCurrentFocus=Window{ghi u0 com.example.game/com.example.game.MainActivity}
+    mFocusedApp=ActivityRecord{jkl u0 com.example.game/.MainActivity} t3}
 `;
 
 describe("focus tracing", () => {
@@ -21,9 +21,9 @@ describe("focus tracing", () => {
     expect(parseWindowFocus(WINDOW_DUMP)).toEqual([
       {
         logicalId: 0,
-        focusedWindow: "com.wajiha/com.wajiha.MainActivity",
-        focusedActivity: "com.wajiha/.MainActivity",
-        focusedPackage: "com.wajiha",
+        focusedWindow: "com.example.game/com.example.game.MainActivity",
+        focusedActivity: "com.example.game/.MainActivity",
+        focusedPackage: "com.example.game",
         focusedTaskId: 3,
       },
       {
@@ -57,7 +57,7 @@ describe("focus tracing", () => {
       taskId: 9,
     });
     expect(trace.samples[0]?.displays["0"]).toMatchObject({
-      packageName: "com.wajiha",
+      packageName: "com.example.game",
       taskId: 3,
     });
   });

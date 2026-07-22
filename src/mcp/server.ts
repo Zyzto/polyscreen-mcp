@@ -540,7 +540,7 @@ export function createPolyScreenServer(
     {
       title: "Analyze recording for black/dim frames",
       description:
-        "Sample mean grayscale over an MP4 (ffmpeg), detect black/dim runs, classify brightness buckets (true_black, near_black_content, system_launcher_idle, dark_app_ui, light_app_ui), and optionally export sample PNGs. Use mode='flash' for regression hunting (exports samples, denser timelineSummary). Full per-frame timeline is omitted unless includeFullTimeline=true.",
+        "Sample mean grayscale over an MP4 (ffmpeg), detect black/dim runs, and classify OEM-agnostic brightness buckets (true_black, near_black_content, system_launcher_idle, dark_app_ui, light_app_ui). Bucket ranges are heuristics—calibrate with exportSampleFrames on the device under test. Use mode='flash' for one-call regressions. Full per-frame timeline is omitted unless includeFullTimeline=true.",
       inputSchema: {
         serial: serialSchema.optional(),
         path: z.string().min(1).optional(),
@@ -660,7 +660,7 @@ export function createPolyScreenServer(
     {
       title: "Theme / night-mode flash report",
       description:
-        "Correlate system night mode with a recording analysis (mode=flash) and marks near any black/dim timeline sample — useful for splash/theme flashes.",
+        "Correlate system night mode with a recording analysis (mode=flash) and marks whose offsets fall inside any reported black/dim run (± markWindowMs).",
       inputSchema: {
         serial: serialSchema,
         path: z.string().min(1).optional(),

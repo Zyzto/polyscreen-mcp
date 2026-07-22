@@ -13,15 +13,15 @@ describe("ADB parsers", () => {
   it("parses device metadata without guessing a default", () => {
     expect(
       parseDevices(
-        "List of devices attached\n10.0.0.174:5555 device product:Thor model:AYN_Thor device:thor transport_id:7\n",
+        "List of devices attached\n10.0.0.174:5555 device product:HandheldX model:DualPad device:dualpad transport_id:7\n",
       ),
     ).toEqual([
       {
         serial: "10.0.0.174:5555",
         state: "device",
-        product: "Thor",
-        model: "AYN_Thor",
-        device: "thor",
+        product: "HandheldX",
+        model: "DualPad",
+        device: "dualpad",
         transportId: "7",
       },
     ]);
@@ -30,11 +30,11 @@ describe("ADB parsers", () => {
   it("parses getprop output", () => {
     expect(
       parseProperties(
-        "[ro.build.version.sdk]: [33]\n[ro.product.manufacturer]: [AYN]\n[empty]: []\n",
+        "[ro.build.version.sdk]: [33]\n[ro.product.manufacturer]: [ExampleOem]\n[empty]: []\n",
       ),
     ).toEqual({
       "ro.build.version.sdk": "33",
-      "ro.product.manufacturer": "AYN",
+      "ro.product.manufacturer": "ExampleOem",
       empty: "",
     });
   });

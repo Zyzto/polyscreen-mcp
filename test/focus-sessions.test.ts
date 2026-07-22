@@ -13,8 +13,8 @@ const WINDOW_DUMP = `
     mCurrentFocus=Window{abc u0 com.android.launcher3/com.android.launcher3.SecondaryDisplayLauncher}
     mFocusedApp=ActivityRecord{def u0 com.android.launcher3/.SecondaryDisplayLauncher} t9}
   Display: mDisplayId=0
-    mCurrentFocus=Window{ghi u0 com.wajiha/com.wajiha.MainActivity}
-    mFocusedApp=ActivityRecord{jkl u0 com.wajiha/.MainActivity} t3}
+    mCurrentFocus=Window{ghi u0 com.example.game/com.example.game.MainActivity}
+    mFocusedApp=ActivityRecord{jkl u0 com.example.game/.MainActivity} t3}
 `;
 
 describe("FocusTraceSessionManager", () => {
