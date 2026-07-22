@@ -12,8 +12,10 @@ import {
   resolveAnalyzeOptions,
   resolveRecordingPath,
 } from "../src/android/recording-analyze.js";
+import { hasFfmpegTools } from "./ffmpeg-available.js";
 
 const cleanups: Array<() => Promise<void>> = [];
+const itFfmpeg = hasFfmpegTools() ? it : it.skip;
 
 afterEach(async () => {
   await Promise.allSettled(cleanups.splice(0).map((cleanup) => cleanup()));
@@ -66,7 +68,7 @@ describe("recording analysis", () => {
     expect(classifyMeanGray(150)).toBe("other");
   });
 
-  it("detects black frames and honors marks", async () => {
+  itFfmpeg("detects black frames and honors marks", async () => {
     const dir = await mkdtemp(join(tmpdir(), "polyscreen-analyze-"));
     cleanups.push(async () => rm(dir, { recursive: true, force: true }));
     const path = join(dir, "black.mp4");
@@ -101,7 +103,7 @@ describe("recording analysis", () => {
     ).toBe(true);
   });
 
-  it("includes the full timeline only when requested", async () => {
+  itFfmpeg("includes the full timeline only when requested", async () => {
     const dir = await mkdtemp(join(tmpdir(), "polyscreen-analyze-"));
     cleanups.push(async () => rm(dir, { recursive: true, force: true }));
     const path = join(dir, "black-full.mp4");
@@ -115,7 +117,7 @@ describe("recording analysis", () => {
     expect(analysis.meanGrayTimeline?.length).toBe(analysis.frameCount);
   });
 
-  it("reports zero black frames for a light clip", async () => {
+  itFfmpeg("reports zero black frames for a light clip", async () => {
     const dir = await mkdtemp(join(tmpdir(), "polyscreen-analyze-"));
     cleanups.push(async () => rm(dir, { recursive: true, force: true }));
     const path = join(dir, "white.mp4");
@@ -160,7 +162,7 @@ describe("recording analysis", () => {
     expect(runs.maxRunMs).toBe(200);
   });
 
-  it("golden: black clip analysis shape stays stable", async () => {
+  itFfmpeg("golden: black clip analysis shape stays stable", async () => {
     const dir = await mkdtemp(join(tmpdir(), "polyscreen-analyze-"));
     cleanups.push(async () => rm(dir, { recursive: true, force: true }));
     const path = join(dir, "golden-black.mp4");
