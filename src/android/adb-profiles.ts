@@ -3,7 +3,26 @@ import { mkdir, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
 import { AdbRunner, quoteRemoteShellArg } from "./adb-runner.js";
+import {
+  assertSafeComponent,
+  assertSafePackage,
+  filterRoles,
+  parseRoleDumpsys,
+  resolveRoleName,
+  type RoleHolders,
+} from "./default-apps.js";
 import { DeviceQueue } from "./device-queue.js";
+import {
+  assertSafeNotificationKey,
+  assertSafeNotificationPackage,
+  assertSafeNotificationTag,
+  assertSafeNotificationText,
+  parseNotificationList,
+  parseNotificationRecord,
+  type NotificationDetails,
+  type NotificationRef,
+} from "./notifications.js";
+import { abortableDelay } from "../utils/abortable-delay.js";
 
 const SAFE_PACKAGE = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$/;
 const SAFE_PERMISSION = /^[A-Za-z][A-Za-z0-9_.]+$/;
@@ -249,6 +268,359 @@ export class AdbProfiles {
         { serial, signal },
       ),
     );
+  }
+
+  async listDefaultApps(
+    serial: string,
+    options: {
+      userId: number;
+      roles?: string[] | undefined;
+      includeEmpty?: boolean | undefined;
+      includeAllSystem?: boolean | undefined;
+    },
+    signal?: AbortSignal,
+  ): Promise<{ userId: number; roles: RoleHolders[]; raw: string }> {
+    // dumpsys role is device-wide; user_states may include multiple users.
+    const raw = await this.adb.text(["shell", "dumpsys", "role"], {
+      serial,
+      signal,
+      timeoutMs: 20_000,
+      maxOutputBytes: 2 * 1024 * 1024,
+    });
+    const parsed = parseRoleDumpsys(raw, options.userId);
+    const roles = filterRoles(parsed, {
+      roles: options.roles,
+      includeEmpty: options.includeEmpty,
+      includeAllSystem: options.includeAllSystem,
+    });
+    return {
+      userId: options.userId,
+      roles,
+      raw: raw.slice(0, 100_000),
+    };
+  }
+
+  async getDefaultApp(
+    serial: string,
+    input: { userId: number; role: string },
+    signal?: AbortSignal,
+  ): Promise<RoleHolders & { userId: number }> {
+    const role = resolveRoleName(input.role);
+    const listed = await this.listDefaultApps(
+      serial,
+      {
+        userId: input.userId,
+        roles: [role],
+        includeEmpty: true,
+        includeAllSystem: true,
+      },
+      signal,
+    );
+    const entry = listed.roles.find((item) => item.role === role) ?? {
+      role,
+      holders: [],
+    };
+    return { userId: input.userId, ...entry };
+  }
+
+  async setDefaultApp(
+    serial: string,
+    input: {
+      userId: number;
+      role: string;
+      packageName: string;
+      exclusive?: boolean | undefined;
+      bypassQualification?: boolean | undefined;
+      /** HOME only: also call `cmd package set-home-activity` with this component. */
+      homeComponent?: string | undefined;
+    },
+    signal?: AbortSignal,
+  ): Promise<{
+    userId: number;
+    role: string;
+    packageName: string;
+    holders: string[];
+    outputs: string[];
+  }> {
+    const role = resolveRoleName(input.role);
+    const packageName = assertSafePackage(input.packageName);
+    const exclusive = input.exclusive !== false;
+    const homeComponent = input.homeComponent
+      ? assertSafeComponent(input.homeComponent)
+      : undefined;
+    if (homeComponent && role !== "android.app.role.HOME") {
+      throw new Error("homeComponent is only valid for the home role");
+    }
+    const outputs: string[] = [];
+
+    await this.#queue.mutate(serial, async () => {
+      if (input.bypassQualification) {
+        outputs.push(
+          await this.adb.text(
+            [
+              "shell",
+              "cmd",
+              "role",
+              "set-bypassing-role-qualification",
+              "true",
+            ],
+            { serial, signal },
+          ),
+        );
+      }
+      try {
+        if (exclusive) {
+          outputs.push(
+            await this.adb.text(
+              [
+                "shell",
+                "cmd",
+                "role",
+                "clear-role-holders",
+                "--user",
+                String(input.userId),
+                role,
+              ],
+              { serial, signal },
+            ),
+          );
+        }
+        outputs.push(
+          await this.adb.text(
+            [
+              "shell",
+              "cmd",
+              "role",
+              "add-role-holder",
+              "--user",
+              String(input.userId),
+              role,
+              packageName,
+            ],
+            { serial, signal },
+          ),
+        );
+        if (homeComponent) {
+          outputs.push(
+            await this.adb.text(
+              [
+                "shell",
+                "cmd",
+                "package",
+                "set-home-activity",
+                "--user",
+                String(input.userId),
+                homeComponent,
+              ],
+              { serial, signal },
+            ),
+          );
+        }
+      } finally {
+        if (input.bypassQualification) {
+          outputs.push(
+            await this.adb
+              .text(
+                [
+                  "shell",
+                  "cmd",
+                  "role",
+                  "set-bypassing-role-qualification",
+                  "false",
+                ],
+                { serial, signal },
+              )
+              .catch((error: unknown) =>
+                error instanceof Error ? error.message : String(error),
+              ),
+          );
+        }
+      }
+    });
+
+    const after = await this.getDefaultApp(
+      serial,
+      { userId: input.userId, role },
+      signal,
+    );
+    return {
+      userId: input.userId,
+      role,
+      packageName,
+      holders: after.holders,
+      outputs: outputs.map((line) => line.trim()).filter(Boolean),
+    };
+  }
+
+  async clearDefaultApp(
+    serial: string,
+    input: {
+      userId: number;
+      role: string;
+      /** When set, remove only this package; otherwise clear all holders. */
+      packageName?: string | undefined;
+    },
+    signal?: AbortSignal,
+  ): Promise<{
+    userId: number;
+    role: string;
+    holders: string[];
+    output: string;
+  }> {
+    const role = resolveRoleName(input.role);
+    const output = await this.#queue.mutate(serial, async () => {
+      if (input.packageName) {
+        const packageName = assertSafePackage(input.packageName);
+        return await this.adb.text(
+          [
+            "shell",
+            "cmd",
+            "role",
+            "remove-role-holder",
+            "--user",
+            String(input.userId),
+            role,
+            packageName,
+          ],
+          { serial, signal },
+        );
+      }
+      return await this.adb.text(
+        [
+          "shell",
+          "cmd",
+          "role",
+          "clear-role-holders",
+          "--user",
+          String(input.userId),
+          role,
+        ],
+        { serial, signal },
+      );
+    });
+    const after = await this.getDefaultApp(
+      serial,
+      { userId: input.userId, role },
+      signal,
+    );
+    return {
+      userId: input.userId,
+      role,
+      holders: after.holders,
+      output: output.trim(),
+    };
+  }
+
+  async listNotifications(
+    serial: string,
+    options: {
+      packageName?: string | undefined;
+      includeDetails?: boolean | undefined;
+      maxDetails?: number | undefined;
+    } = {},
+    signal?: AbortSignal,
+  ): Promise<{
+    notifications: Array<NotificationRef | NotificationDetails>;
+    count: number;
+  }> {
+    if (options.packageName) {
+      assertSafeNotificationPackage(options.packageName);
+    }
+    const raw = await this.adb.text(["shell", "cmd", "notification", "list"], {
+      serial,
+      signal,
+      timeoutMs: 15_000,
+    });
+    let notifications: Array<NotificationRef | NotificationDetails> =
+      parseNotificationList(raw);
+    if (options.packageName) {
+      notifications = notifications.filter(
+        (item) => item.packageName === options.packageName,
+      );
+    }
+    if (options.includeDetails) {
+      const limit = Math.min(Math.max(options.maxDetails ?? 40, 1), 80);
+      const detailed: NotificationDetails[] = [];
+      for (const item of notifications.slice(0, limit)) {
+        detailed.push(await this.getNotification(serial, item.key, signal));
+      }
+      notifications = detailed;
+    }
+    return { notifications, count: notifications.length };
+  }
+
+  async getNotification(
+    serial: string,
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<NotificationDetails> {
+    const safeKey = assertSafeNotificationKey(key);
+    const raw = await this.adb.text(
+      ["shell", "cmd", "notification", "get", quoteRemoteShellArg(safeKey)],
+      { serial, signal, timeoutMs: 15_000, maxOutputBytes: 1 * 1024 * 1024 },
+    );
+    return parseNotificationRecord(raw);
+  }
+
+  async postNotification(
+    serial: string,
+    input: {
+      tag: string;
+      text: string;
+      title?: string | undefined;
+      verbose?: boolean | undefined;
+    },
+    signal?: AbortSignal,
+  ): Promise<{
+    tag: string;
+    text: string;
+    title?: string;
+    key?: string;
+    output: string;
+    notification?: NotificationDetails;
+  }> {
+    const tag = assertSafeNotificationTag(input.tag);
+    const text = assertSafeNotificationText(input.text, "text");
+    const title = input.title
+      ? assertSafeNotificationText(input.title, "title", 500)
+      : undefined;
+    const args = ["shell", "cmd", "notification", "post"];
+    if (input.verbose) args.push("-v");
+    if (title !== undefined) {
+      args.push("-t", quoteRemoteShellArg(title));
+    }
+    args.push(tag, quoteRemoteShellArg(text));
+
+    const output = await this.#queue.mutate(serial, () =>
+      this.adb.text(args, { serial, signal, timeoutMs: 15_000 }),
+    );
+
+    // Shell posts as com.android.shell; StatusBar can lag briefly after post.
+    let match: NotificationRef | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (attempt > 0) await abortableDelay(150 * attempt, signal);
+      const listed = await this.listNotifications(
+        serial,
+        { packageName: "com.android.shell" },
+        signal,
+      );
+      match = listed.notifications.find((item) => item.tag === tag);
+      if (match) break;
+    }
+    const notification = match
+      ? await this.getNotification(serial, match.key, signal).catch(
+          () => undefined,
+        )
+      : undefined;
+
+    return {
+      tag,
+      text,
+      ...(title !== undefined ? { title } : {}),
+      ...(match ? { key: match.key } : {}),
+      output: output.trim(),
+      ...(notification ? { notification } : {}),
+    };
   }
 
   async push(

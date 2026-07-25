@@ -39,6 +39,13 @@ describe("MCP server contract", () => {
     expect(names).toContain("mobile_logcat_start");
     expect(names).toContain("mobile_diagnostics_activity_tops");
     expect(names).toContain("mobile_broadcast_send");
+    expect(names).toContain("mobile_default_apps_list");
+    expect(names).toContain("mobile_default_app_get");
+    expect(names).toContain("mobile_default_app_set");
+    expect(names).toContain("mobile_default_app_clear");
+    expect(names).toContain("mobile_notifications_list");
+    expect(names).toContain("mobile_notification_get");
+    expect(names).toContain("mobile_notification_post");
     expect(names).not.toContain("mobile_companion_key");
     expect(server.listRegisteredTools()).toEqual([...names].sort());
   });

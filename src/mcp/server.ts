@@ -1776,6 +1776,18 @@ export function createPolyScreenServer(
   }
 
   if (profiles.has("apps") || profiles.has("all")) {
+    const roleSchema = z
+      .string()
+      .min(1)
+      .describe(
+        "Short name (home, browser, dialer, sms, …) or full android.app.role.*",
+      );
+    const roleHoldersSchema = z.object({
+      role: z.string(),
+      alias: z.string().optional(),
+      holders: z.array(z.string()),
+    });
+
     server.registerTool(
       "mobile_packages_list",
       {
@@ -1800,6 +1812,281 @@ export function createPolyScreenServer(
             extra.signal,
           ),
         };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_default_apps_list",
+      {
+        title: "List default app role holders",
+        description:
+          "Read RoleManager holders from dumpsys role for common default-app roles (home, browser, dialer, sms, …). Set includeAllSystem to include SYSTEM_* roles.",
+        inputSchema: {
+          serial: serialSchema,
+          userId: z.number().int().nonnegative().default(0),
+          roles: z.array(roleSchema).optional(),
+          includeEmpty: z.boolean().default(false),
+          includeAllSystem: z.boolean().default(false),
+        },
+        outputSchema: {
+          userId: z.number(),
+          roles: z.array(roleHoldersSchema),
+          raw: z.string(),
+        },
+        annotations: readAnnotations,
+      },
+      async (
+        { serial, userId, roles, includeEmpty, includeAllSystem },
+        extra,
+      ) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = await adbProfiles.listDefaultApps(
+          serial,
+          { userId, roles, includeEmpty, includeAllSystem },
+          extra.signal,
+        );
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_default_app_get",
+      {
+        title: "Get default app for a role",
+        description:
+          "Return current RoleManager holders for one role (e.g. home → android.app.role.HOME).",
+        inputSchema: {
+          serial: serialSchema,
+          userId: z.number().int().nonnegative().default(0),
+          role: roleSchema,
+        },
+        outputSchema: {
+          userId: z.number(),
+          role: z.string(),
+          alias: z.string().optional(),
+          holders: z.array(z.string()),
+        },
+        annotations: readAnnotations,
+      },
+      async ({ serial, userId, role }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = {
+          ...(await adbProfiles.getDefaultApp(
+            serial,
+            { userId, role },
+            extra.signal,
+          )),
+        };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_default_app_set",
+      {
+        title: "Set default app for a role",
+        description:
+          "Set a package as RoleManager holder via cmd role add-role-holder. By default clears existing holders first (exclusive). Optional bypassQualification helps test/debuggable apps; optional homeComponent also runs cmd package set-home-activity for HOME.",
+        inputSchema: {
+          serial: serialSchema,
+          userId: z.number().int().nonnegative().default(0),
+          role: roleSchema,
+          packageName: packageSchema,
+          exclusive: z.boolean().default(true),
+          bypassQualification: z.boolean().default(false),
+          homeComponent: z
+            .string()
+            .regex(
+              /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+\/\.?[A-Za-z][A-Za-z0-9_.$]*$/,
+            )
+            .optional()
+            .describe(
+              "HOME only: package/activity for cmd package set-home-activity",
+            ),
+        },
+        outputSchema: {
+          userId: z.number(),
+          role: z.string(),
+          packageName: z.string(),
+          holders: z.array(z.string()),
+          outputs: z.array(z.string()),
+        },
+        annotations: { ...mutationAnnotations, destructiveHint: true },
+      },
+      async (
+        {
+          serial,
+          userId,
+          role,
+          packageName,
+          exclusive,
+          bypassQualification,
+          homeComponent,
+        },
+        extra,
+      ) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = await adbProfiles.setDefaultApp(
+          serial,
+          {
+            userId,
+            role,
+            packageName,
+            exclusive,
+            bypassQualification,
+            homeComponent,
+          },
+          extra.signal,
+        );
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_default_app_clear",
+      {
+        title: "Clear default app role holders",
+        description:
+          "Clear RoleManager holders for a role (all holders), or remove one package when packageName is set.",
+        inputSchema: {
+          serial: serialSchema,
+          userId: z.number().int().nonnegative().default(0),
+          role: roleSchema,
+          packageName: packageSchema.optional(),
+        },
+        outputSchema: {
+          userId: z.number(),
+          role: z.string(),
+          holders: z.array(z.string()),
+          output: z.string(),
+        },
+        annotations: { ...mutationAnnotations, destructiveHint: true },
+      },
+      async ({ serial, userId, role, packageName }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = await adbProfiles.clearDefaultApp(
+          serial,
+          { userId, role, packageName },
+          extra.signal,
+        );
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    const notificationRefSchema = z.object({
+      key: z.string(),
+      userId: z.number(),
+      packageName: z.string(),
+      id: z.number(),
+      tag: z.string().nullable(),
+      uid: z.number(),
+    });
+    const notificationDetailsSchema = notificationRefSchema.extend({
+      importance: z.number().optional(),
+      channelId: z.string().optional(),
+      title: z.string().optional(),
+      text: z.string().optional(),
+      subText: z.string().optional(),
+      tickerText: z.string().optional(),
+      whenMs: z.number().optional(),
+      seen: z.boolean().optional(),
+      raw: z.string(),
+    });
+
+    server.registerTool(
+      "mobile_notifications_list",
+      {
+        title: "List active notifications",
+        description:
+          "List active notification keys via cmd notification list. Optionally filter by package and fetch title/text details (capped).",
+        inputSchema: {
+          serial: serialSchema,
+          packageName: z
+            .string()
+            .regex(/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*$/)
+            .optional()
+            .describe("Filter by package (allows system pkg android)"),
+          includeDetails: z.boolean().default(false),
+          maxDetails: z.number().int().min(1).max(80).default(40),
+        },
+        outputSchema: {
+          count: z.number(),
+          notifications: z.array(
+            z.union([notificationRefSchema, notificationDetailsSchema]),
+          ),
+        },
+        annotations: readAnnotations,
+      },
+      async ({ serial, packageName, includeDetails, maxDetails }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = await adbProfiles.listNotifications(
+          serial,
+          { packageName, includeDetails, maxDetails },
+          extra.signal,
+        );
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_notification_get",
+      {
+        title: "Get notification details",
+        description:
+          "Fetch one active notification by key (userId|package|id|tag|uid) via cmd notification get.",
+        inputSchema: {
+          serial: serialSchema,
+          key: z
+            .string()
+            .min(1)
+            .describe("Notification key from mobile_notifications_list"),
+        },
+        outputSchema: notificationDetailsSchema,
+        annotations: readAnnotations,
+      },
+      async ({ serial, key }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = {
+          ...(await adbProfiles.getNotification(serial, key, extra.signal)),
+        };
+        return { content: jsonContent(result), structuredContent: result };
+      },
+    );
+
+    server.registerTool(
+      "mobile_notification_post",
+      {
+        title: "Post a shell notification",
+        description:
+          "Post a notification as com.android.shell via cmd notification post (tag + text, optional title). Useful for agent/device signaling during tests.",
+        inputSchema: {
+          serial: serialSchema,
+          tag: z
+            .string()
+            .regex(/^[A-Za-z0-9_./-]{1,128}$/)
+            .describe("Notification tag (also used to rediscover the key)"),
+          text: z.string().min(1).max(2000),
+          title: z.string().min(1).max(500).optional(),
+          verbose: z.boolean().default(false),
+        },
+        outputSchema: {
+          tag: z.string(),
+          text: z.string(),
+          title: z.string().optional(),
+          key: z.string().optional(),
+          output: z.string(),
+          notification: notificationDetailsSchema.optional(),
+        },
+        annotations: mutationAnnotations,
+      },
+      async ({ serial, tag, text, title, verbose }, extra) => {
+        await controller.requireDevice(serial, extra.signal);
+        const result = await adbProfiles.postNotification(
+          serial,
+          { tag, text, title, verbose },
+          extra.signal,
+        );
         return { content: jsonContent(result), structuredContent: result };
       },
     );

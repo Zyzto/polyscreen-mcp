@@ -49,7 +49,7 @@ The default `core` profile is deliberately compact. Additional profiles advertis
 | Profile        | Capabilities                                                                                                                 |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `core`         | Server info, devices, displays, screenshots, async record/analyze, async focus traces, artifacts list/prune, UI, input, apps |
-| `apps`         | Package inventory and scoped broadcasts                                                                                      |
+| `apps`         | Packages, default-app roles, notifications (list/get/post), and scoped broadcasts                                            |
 | `diagnostics`  | Dumpsys slices, logcat snapshot/start/stop, wake, night mode, debuggable shared_prefs read                                   |
 | `files`        | Constrained push/pull under approved roots                                                                                   |
 | `performance`  | CPU, power, battery, memory, and frame snapshots                                                                             |
@@ -66,13 +66,13 @@ The default `core` profile is deliberately compact. Additional profiles advertis
   "mcpServers": {
     "polyscreen": {
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.4.2", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.5.0", "--profile", "core", "diagnostics"]
     }
   }
 }
 ```
 
-The example pins `0.4.2`. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. If the tool list looks stale, toggle the server off/on in Cursor MCP settings so `list_changed` is applied.
+The example pins `0.5.0`. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. If the tool list looks stale, toggle the server off/on in Cursor MCP settings so `list_changed` is applied.
 
 `diagnostics` is required for logcat start/stop, activity tops, wake, and night-mode tools.
 
@@ -194,7 +194,28 @@ Stop results include `changes` / `changeCount` (focus transitions per display) �
 - `mobile_power_wake` / `mobile_uimode_get` / `mobile_uimode_set`
 - `mobile_app_prefs_read` (debuggable `run-as` shared_prefs)
 
-`mobile_app_launch` / `mobile_app_stop` / `mobile_app_relaunch_on_displays` cover per-package force-stop and display-targeted launch (including stop→launch recipes across multiple logical displays). `mobile_broadcast_send` (apps profile) covers app debug actions.
+`mobile_app_launch` / `mobile_app_stop` / `mobile_app_relaunch_on_displays` cover per-package force-stop and display-targeted launch (including stop→launch recipes across multiple logical displays).
+
+### Default apps (`apps` profile)
+
+| Tool                       | Purpose                                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `mobile_default_apps_list` | RoleManager holders for common defaults (home, browser, dialer, sms, …) via `dumpsys role`     |
+| `mobile_default_app_get`   | Holders for one role (short name or `android.app.role.*`)                                      |
+| `mobile_default_app_set`   | `cmd role add-role-holder` (exclusive clear+add by default); optional `homeComponent` for HOME |
+| `mobile_default_app_clear` | `clear-role-holders` or `remove-role-holder` when `packageName` is set                         |
+
+Requires shell access to RoleManager (typical on userdebug/eng or with suitable privileges). `bypassQualification: true` can help assign roles to test APKs. `mobile_broadcast_send` covers app debug broadcasts.
+
+### Notifications (`apps` profile)
+
+| Tool                        | Purpose                                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------------------------- |
+| `mobile_notifications_list` | Active keys via `cmd notification list`; optional `packageName` / `includeDetails` (title/text) |
+| `mobile_notification_get`   | Details for one key (`userId\|package\|id\|tag\|uid`)                                           |
+| `mobile_notification_post`  | Post as `com.android.shell` with `tag` + `text` (optional `title`)                              |
+
+Posted notifications are owned by the shell package. Keys contain `|` and are quoted automatically for the device shell.
 
 ### Visual regression workflow (device-agnostic)
 

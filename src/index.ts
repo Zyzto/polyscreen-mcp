@@ -2,6 +2,26 @@ export { AdbCommandError, AdbRunner } from "./android/adb-runner.js";
 export { AdbProfiles } from "./android/adb-profiles.js";
 export { AndroidController } from "./android/android-controller.js";
 export {
+  COMMON_DEFAULT_APP_ROLES,
+  DEFAULT_APP_ROLE_ALIASES,
+  filterRoles,
+  parseRoleDumpsys,
+  resolveRoleName,
+} from "./android/default-apps.js";
+export type {
+  DefaultAppRoleAlias,
+  RoleHolders,
+} from "./android/default-apps.js";
+export {
+  parseNotificationKey,
+  parseNotificationList,
+  parseNotificationRecord,
+} from "./android/notifications.js";
+export type {
+  NotificationDetails,
+  NotificationRef,
+} from "./android/notifications.js";
+export {
   FocusTraceSessionManager,
   summarizeFocusChanges,
 } from "./android/focus-sessions.js";
