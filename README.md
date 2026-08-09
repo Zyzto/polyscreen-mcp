@@ -38,7 +38,7 @@
 </p>
 
 > [!WARNING]
-> **Latest MCP required.** PolyScreen speaks the current Model Context Protocol revision (`2026-07-28`). Use a recent Cursor / Claude / VS Code / Windsurf (or other) MCP host that negotiates that era. Older 2025-only clients may connect on a legacy path but will miss modern features such as cacheable `tools/list` hints and `subscriptions/listen`.
+> **Latest MCP required.** PolyScreen speaks the current Model Context Protocol revision (`2026-07-28`). Use a recent Cursor / Claude / VS Code / Codex (or other) MCP host that negotiates that era. Older 2025-only clients may connect on a legacy path but will miss modern features such as cacheable `tools/list` hints and `subscriptions/listen`.
 
 ---
 
