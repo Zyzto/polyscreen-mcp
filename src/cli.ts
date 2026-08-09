@@ -2,11 +2,11 @@
 
 import type { Server as HttpServer } from "node:http";
 
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { Command } from "commander";
 
 import { startStreamableHttpServer } from "./mcp/http.js";
-import { createPolyScreenServer } from "./mcp/server.js";
+import { createPolyScreenRuntime } from "./mcp/server.js";
 import { PACKAGE_VERSION } from "./version.js";
 
 const program = new Command()
@@ -32,13 +32,21 @@ const options = program.opts<{
   listen?: string;
   token?: string;
 }>();
-const server = createPolyScreenServer({
+const runtime = createPolyScreenRuntime({
   profiles: new Set(options.profile),
 });
 let httpServer: HttpServer | undefined;
+let httpHandler: Awaited<
+  ReturnType<typeof startStreamableHttpServer>
+>["handler"];
+let stdioHandle: ReturnType<typeof serveStdio> | undefined;
 
 const shutdown = async (): Promise<void> => {
-  await server.close();
+  await Promise.allSettled([
+    httpHandler?.close(),
+    stdioHandle?.close(),
+    runtime.close(),
+  ]);
   if (httpServer) {
     await new Promise<void>((resolve) => httpServer?.close(() => resolve()));
   }
@@ -53,18 +61,30 @@ if (options.listen !== undefined) {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`Invalid listen port: ${options.listen}`);
   }
-  ({ httpServer } = await startStreamableHttpServer(server, {
-    port,
-    token: options.token,
-  }));
+  ({ httpServer, handler: httpHandler } = await startStreamableHttpServer(
+    runtime.createServer,
+    {
+      port,
+      token: options.token,
+    },
+  ));
   console.error(
-    `PolyScreen MCP ${PACKAGE_VERSION} listening on http://127.0.0.1:${port}/mcp (${server.listRegisteredTools().length} tools)`,
+    `PolyScreen MCP ${PACKAGE_VERSION} listening on http://127.0.0.1:${port}/mcp (${runtime.listRegisteredTools().length} tools)`,
   );
-  server.notifyToolListChanged();
+  httpHandler.notify.toolsChanged();
 } else {
-  await server.connect(new StdioServerTransport());
+  // Notify after the pinned instance is connected so legacy hosts refresh
+  // cached tool lists; modern hosts pick this up via subscriptions/listen.
+  stdioHandle = serveStdio(() => {
+    const server = runtime.createServer();
+    const connect = server.connect.bind(server);
+    server.connect = async (transport) => {
+      await connect(transport);
+      server.notifyToolListChanged();
+    };
+    return server;
+  });
   console.error(
-    `[polyscreen-mcp] ${PACKAGE_VERSION} connected over stdio with ${server.listRegisteredTools().length} tools`,
+    `[polyscreen-mcp] ${PACKAGE_VERSION} serving stdio with ${runtime.listRegisteredTools().length} tools`,
   );
-  server.notifyToolListChanged();
 }

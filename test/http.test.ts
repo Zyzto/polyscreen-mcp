@@ -1,10 +1,11 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { startStreamableHttpServer } from "../src/mcp/http.js";
-import { createPolyScreenServer } from "../src/mcp/server.js";
+import { createPolyScreenRuntime } from "../src/mcp/server.js";
 
 describe("Streamable HTTP security", () => {
   const cleanups: Array<() => Promise<void>> = [];
@@ -14,13 +15,17 @@ describe("Streamable HTTP security", () => {
   });
 
   it("rejects untrusted origins and missing bearer tokens", async () => {
-    const mcp = createPolyScreenServer();
-    const { httpServer } = await startStreamableHttpServer(mcp, {
-      port: 0,
-      token: "test-token",
-    });
+    const runtime = createPolyScreenRuntime();
+    const { httpServer, handler } = await startStreamableHttpServer(
+      runtime.createServer,
+      {
+        port: 0,
+        token: "test-token",
+      },
+    );
     cleanups.push(async () => {
-      await mcp.close();
+      await handler.close();
+      await runtime.close();
       await closeHttpServer(httpServer);
     });
     const url = serverUrl(httpServer);
@@ -37,40 +42,49 @@ describe("Streamable HTTP security", () => {
     expect(hostile.status).toBe(403);
   });
 
-  it("initializes an authenticated MCP client and calls tools", async () => {
-    const mcp = createPolyScreenServer();
-    const { httpServer } = await startStreamableHttpServer(mcp, {
-      port: 0,
-      token: "test-token",
-    });
+  it("connects an authenticated MCP client and calls tools", async () => {
+    const runtime = createPolyScreenRuntime();
+    const { httpServer, handler } = await startStreamableHttpServer(
+      runtime.createServer,
+      {
+        port: 0,
+        token: "test-token",
+      },
+    );
     const url = serverUrl(httpServer);
     const transport = new StreamableHTTPClientTransport(new URL(url), {
       requestInit: {
         headers: { authorization: "Bearer test-token" },
       },
     });
-    const client = new Client({ name: "http-test", version: "1.0.0" });
+    const client = new Client(
+      { name: "http-test", version: "1.0.0" },
+      { versionNegotiation: { mode: "auto" } },
+    );
     cleanups.push(async () => {
       await client.close().catch(() => undefined);
-      await mcp.close();
+      await handler.close();
+      await runtime.close();
       await closeHttpServer(httpServer);
     });
 
-    await client.connect(transport as unknown as Transport);
+    await client.connect(transport);
     const tools = await client.listTools();
 
-    expect(transport.sessionId).toBeTruthy();
     expect(tools.tools.map((tool) => tool.name)).toContain(
       "mobile_devices_list",
     );
   });
 
-  it("closes an active SSE session before HTTP shutdown", async () => {
-    const mcp = createPolyScreenServer();
-    const { httpServer } = await startStreamableHttpServer(mcp, {
-      port: 0,
-      token: "test-token",
-    });
+  it("closes cleanly while clients may still be connected", async () => {
+    const runtime = createPolyScreenRuntime();
+    const { httpServer, handler } = await startStreamableHttpServer(
+      runtime.createServer,
+      {
+        port: 0,
+        token: "test-token",
+      },
+    );
     const transport = new StreamableHTTPClientTransport(
       new URL(serverUrl(httpServer)),
       {
@@ -79,20 +93,24 @@ describe("Streamable HTTP security", () => {
         },
       },
     );
-    const client = new Client({ name: "sse-test", version: "1.0.0" });
+    const client = new Client(
+      { name: "sse-test", version: "1.0.0" },
+      { versionNegotiation: { mode: "auto" } },
+    );
     cleanups.push(async () => {
       await client.close().catch(() => undefined);
-      await mcp.close().catch(() => undefined);
+      await handler.close().catch(() => undefined);
+      await runtime.close().catch(() => undefined);
       await closeHttpServer(httpServer);
     });
-    await client.connect(transport as unknown as Transport);
-    expect(transport.sessionId).toBeTruthy();
+    await client.connect(transport);
     expect(await connectionCount(httpServer)).toBeGreaterThan(0);
 
     await expect(
       Promise.race([
         (async () => {
-          await mcp.close();
+          await handler.close();
+          await runtime.close();
           await closeHttpServer(httpServer);
         })(),
         new Promise((_, reject) =>

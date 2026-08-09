@@ -40,7 +40,7 @@ For local Streamable HTTP:
 polyscreen-mcp --listen 3300 --token "replace-with-a-secret"
 ```
 
-The endpoint is `http://127.0.0.1:3300/mcp`. HTTP always binds to loopback, validates `Host` and `Origin`, and optionally requires the configured bearer token. Stdio remains the default.
+The endpoint is `http://127.0.0.1:3300/mcp`. HTTP always binds to loopback, validates `Host` and `Origin`, and optionally requires the configured bearer token. Stdio remains the default. The server speaks MCP `2026-07-28` (stateless Streamable HTTP via `createMcpHandler`) and still serves legacy 2025-era clients from the same factory.
 
 ## Tool profiles
 
@@ -66,13 +66,13 @@ The default `core` profile is deliberately compact. Additional profiles advertis
   "mcpServers": {
     "polyscreen": {
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.5.0", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.6.0", "--profile", "core", "diagnostics"]
     }
   }
 }
 ```
 
-The example pins `0.5.0`. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. If the tool list looks stale, toggle the server off/on in Cursor MCP settings so `list_changed` is applied.
+The example pins `0.6.0`. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. If the tool list looks stale, toggle the server off/on in Cursor MCP settings so tool-list change notifications (`list_changed` / `subscriptions/listen`) are applied.
 
 `diagnostics` is required for logcat start/stop, activity tops, wake, and night-mode tools.
 
@@ -103,7 +103,7 @@ Screenshots can be retained with `saveArtifact`. Artifact **listings** are metad
 
 ### Server info and tool-list integrity
 
-`mobile_server_info` returns `{ version, profiles, toolCount, toolNames, artifactRoot }`. On startup the process logs the registered tool count and names to stderr and sends `notifications/tools/list_changed` after connect so clients refresh stale caches.
+`mobile_server_info` returns `{ version, profiles, toolCount, toolNames, artifactRoot }`. On startup the process logs the registered tool count and names to stderr. HTTP publishes tool-list changes via `subscriptions/listen` (`handler.notify.toolsChanged()`); stdio clients should refresh from `tools/list` / `mobile_server_info` after reconnect.
 
 ### Devices and serials
 

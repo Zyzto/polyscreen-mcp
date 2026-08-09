@@ -45,9 +45,13 @@ export type {
 } from "./android/types.js";
 export { startStreamableHttpServer } from "./mcp/http.js";
 export type { HttpServerOptions } from "./mcp/http.js";
-export { createPolyScreenServer } from "./mcp/server.js";
+export {
+  createPolyScreenRuntime,
+  createPolyScreenServer,
+} from "./mcp/server.js";
 export type {
   PolyScreenMcpServer,
+  PolyScreenRuntime,
   PolyScreenServerOptions,
 } from "./mcp/server.js";
 export {

@@ -1,9 +1,15 @@
 import { createServer, type Server as HttpServer } from "node:http";
-import { randomUUID } from "node:crypto";
 
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import {
+  localhostHostValidation,
+  localhostOriginValidation,
+  toNodeHandler,
+} from "@modelcontextprotocol/node";
+import {
+  createMcpHandler,
+  type McpHttpHandler,
+  type McpServerFactory,
+} from "@modelcontextprotocol/server";
 
 export interface HttpServerOptions {
   port: number;
@@ -11,33 +17,25 @@ export interface HttpServerOptions {
 }
 
 export async function startStreamableHttpServer(
-  server: McpServer,
+  factory: McpServerFactory,
   options: HttpServerOptions,
 ): Promise<{
   httpServer: HttpServer;
-  transport: StreamableHTTPServerTransport;
+  handler: McpHttpHandler;
 }> {
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: randomUUID,
-  } as unknown as ConstructorParameters<
-    typeof StreamableHTTPServerTransport
-  >[0]);
-  await server.connect(transport as unknown as Transport);
+  const handler = createMcpHandler(factory);
+  const nodeHandler = toNodeHandler(handler);
+  const validateHost = localhostHostValidation();
+  const validateOrigin = localhostOriginValidation();
 
-  const httpServer = createServer(async (request, response) => {
+  const httpServer = createServer((request, response) => {
     try {
-      if (request.url !== "/mcp") {
+      if (request.url !== "/mcp" && !request.url?.startsWith("/mcp?")) {
         response.writeHead(404).end("Not found");
         return;
       }
-      if (!isAllowedHost(request.headers.host)) {
-        response.writeHead(403).end("Invalid Host");
-        return;
-      }
-      if (!isAllowedOrigin(request.headers.origin)) {
-        response.writeHead(403).end("Invalid Origin");
-        return;
-      }
+      if (!validateHost(request, response)) return;
+      if (!validateOrigin(request, response)) return;
       if (
         options.token !== undefined &&
         request.headers.authorization !== `Bearer ${options.token}`
@@ -47,7 +45,10 @@ export async function startStreamableHttpServer(
           .end("Unauthorized");
         return;
       }
-      await transport.handleRequest(request, response);
+      void nodeHandler(
+        request as Parameters<typeof nodeHandler>[0],
+        response as Parameters<typeof nodeHandler>[1],
+      );
     } catch (error) {
       if (!response.headersSent) response.writeHead(500);
       response.end(
@@ -63,27 +64,5 @@ export async function startStreamableHttpServer(
       resolve();
     });
   });
-  return { httpServer, transport };
-}
-
-function isAllowedHost(host: string | undefined): boolean {
-  if (!host) return false;
-  const hostname = host.startsWith("[")
-    ? host.slice(1, host.indexOf("]"))
-    : host.split(":")[0];
-  return (
-    hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1"
-  );
-}
-
-function isAllowedOrigin(origin: string | undefined): boolean {
-  if (!origin) return true;
-  try {
-    const hostname = new URL(origin).hostname;
-    return (
-      hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1"
-    );
-  } catch {
-    return false;
-  }
+  return { httpServer, handler };
 }
