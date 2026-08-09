@@ -43,7 +43,7 @@
 > [!WARNING]
 > <div dir="rtl" lang="ar">
 >
-> **يتطلّب أحدث MCP.** شاشات تتحدث مراجعة بروتوكول <span dir="ltr">Model Context Protocol</span> الحالية (<span dir="ltr"><code>2026-07-28</code></span>). استخدم مضيف MCP حديثًا (Cursor / Claude / VS Code / Windsurf أو غيره) يتفاوض على هذا العصر. عملاء 2025 فقط قد يتصلون عبر مسار قديم لكنهم يفقدون ميزات حديثة مثل تلميحات <span dir="ltr"><code>tools/list</code></span> القابلة للتخزين و<span dir="ltr"><code>subscriptions/listen</code></span>.
+> **يتطلّب أحدث MCP.** شاشات تتحدث مراجعة بروتوكول <span dir="ltr">Model Context Protocol</span> الحالية (<span dir="ltr"><code>2026-07-28</code></span>). استخدم مضيف MCP حديثًا (Cursor / Claude / VS Code / Codex أو غيره) يتفاوض على هذا العصر. عملاء 2025 فقط قد يتصلون عبر مسار قديم لكنهم يفقدون ميزات حديثة مثل تلميحات <span dir="ltr"><code>tools/list</code></span> القابلة للتخزين و<span dir="ltr"><code>subscriptions/listen</code></span>.
 >
 > </div>
 
