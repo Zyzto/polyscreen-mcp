@@ -3,7 +3,7 @@
   "version": "0.6.0",
   "description": "Capability-driven Android automation MCP server with first-class multi-display and gamepad support",
   "type": "module",
-  "license": "Apache-2.0",
+  "license": "MPL-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Zyzto/polyscreen-mcp.git"
@@ -28,7 +28,9 @@
   },
   "files": [
     "dist",
+    "assets",
     "README.md",
+    "README.ar.md",
     "SECURITY.md",
     "LICENSE",
     "companion/build.gradle.kts",

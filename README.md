@@ -1,8 +1,46 @@
-# PolyScreen MCP
+<!-- markdownlint-disable MD033 MD060 -->
 
-An Android-first Model Context Protocol server built for reliable automation on real devices, including multi-display handhelds, gamepads, emulators, and test labs.
+<p align="center">
+  <img src="assets/polyscreen-logo.svg" alt="PolyScreen" width="220" />
+</p>
 
-The server uses the official `adb` executable for its portable core. It probes each connected device at runtime instead of assuming capabilities from the Android version. Optional tool profiles add diagnostics, app operations, constrained file transfer, performance snapshots, permission control, and an instrumentation companion for explicit key down/up plus accessibility windows on every display.
+<h1 align="center">PolyScreen - شاشات</h1>
+
+<p align="center">
+  <strong>polyscreen-mcp</strong><br/>
+  Android-first Model Context Protocol server — multi-display automation,<br/>
+  structured evidence, and capability probes on real devices.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/polyscreen-mcp"><img alt="npm" src="https://img.shields.io/npm/v/polyscreen-mcp.svg?style=flat-square&label=npm&color=8B6914" /></a>
+  <a href="https://github.com/Zyzto/polyscreen-mcp"><img alt="repo" src="https://img.shields.io/badge/github-Zyzto%2Fpolyscreen--mcp-C0C0C0?style=flat-square" /></a>
+  <img alt="node" src="https://img.shields.io/badge/Node.js-%3E%3D22.12-C0C0C0?style=flat-square&logo=nodedotjs&logoColor=white" />
+  <img alt="android" src="https://img.shields.io/badge/Android-11%2B-C0C0C0?style=flat-square&logo=android&logoColor=white" />
+  <img alt="license" src="https://img.shields.io/badge/license-MPL--2.0-8B6914?style=flat-square" />
+</p>
+
+<p align="center">
+  <a href="#install-and-build">Install</a> ·
+  <a href="#client-configs">Client configs</a> ·
+  <a href="#features-at-a-glance">Features</a> ·
+  <a href="#tool-profiles">Profiles</a> ·
+  <a href="#core-tools">Tools</a> ·
+  <a href="#security">Security</a> ·
+  <a href="README.ar.md">العربية</a>
+</p>
+
+<p align="center">
+  The name <strong>PolyScreen</strong> pairs multi-display automation with Arabic
+  <span dir="rtl"><strong>شاشات</strong></span>
+  (<em>shāshāt</em>): screens —
+  plural of <span dir="rtl"><em>شاشة</em></span> (<em>shāsha</em>).
+</p>
+
+> [!WARNING]
+> **Latest MCP required.** PolyScreen speaks the current Model Context Protocol revision (`2026-07-28`). Use a recent Cursor / Claude / VS Code / Windsurf (or other) MCP host that negotiates that era. Older 2025-only clients may connect on a legacy path but will miss modern features such as cacheable `tools/list` hints and `subscriptions/listen`.
+
+---
 
 ## Why
 
@@ -15,7 +53,28 @@ Existing mobile MCP servers commonly:
 - return prose that agents must parse;
 - expose unrestricted shell commands as ordinary tools.
 
-PolyScreen MCP keeps those boundaries explicit and returns structured evidence for every operation.
+**PolyScreen** keeps those boundaries explicit and returns structured evidence for every operation. The portable core uses the official `adb` executable and probes each connected device at runtime instead of assuming capabilities from the Android version.
+
+On npm: [`polyscreen-mcp`](https://www.npmjs.com/package/polyscreen-mcp) · Repo: [Zyzto/polyscreen-mcp](https://github.com/Zyzto/polyscreen-mcp)
+
+---
+
+## Features at a glance
+
+| Area | What you get |
+|------|----------------|
+| **Displays** | Logical ↔ physical ID correlation; capture/input stay on the same display |
+| **Input** | Device-probed `input` help — keys, gamepad, touch, display targeting |
+| **UI** | Snapshot / find / wait without treating `uiautomator` as multi-display |
+| **Evidence** | Structured JSON tool results (not prose agents must scrape) |
+| **Sessions** | Async record / focus / logcat with marks and wall-clock join keys |
+| **Analysis** | Black/dim flash detection via ffmpeg; theme-flash reports |
+| **Profiles** | Compact `core` plus opt-in apps, diagnostics, files, performance, companion |
+| **Transport** | Stdio default; loopback Streamable HTTP with Host/Origin + optional bearer |
+
+**Platforms:** Android 11+ (multi-display baseline). Host: Node.js 22.12+, `adb` on `PATH`.
+
+---
 
 ## Requirements
 
@@ -34,13 +93,7 @@ pnpm check
 pnpm build
 ```
 
-For local Streamable HTTP:
-
-```bash
-polyscreen-mcp --listen 3300 --token "replace-with-a-secret"
-```
-
-The endpoint is `http://127.0.0.1:3300/mcp`. HTTP always binds to loopback, validates `Host` and `Origin`, and optionally requires the configured bearer token. Stdio remains the default. The server speaks MCP `2026-07-28` (stateless Streamable HTTP via `createMcpHandler`) and still serves legacy 2025-era clients from the same factory.
+Stdio remains the default. The server speaks MCP `2026-07-28` (stateless Streamable HTTP via `createMcpHandler`) and still serves legacy 2025-era clients from the same factory. Prefer a client on that revision (or newer) for cacheable `tools/list` hints and `subscriptions/listen`. Wire-up snippets for Cursor, Claude, VS Code, Windsurf, and others: [Client configs](#client-configs).
 
 ## Tool profiles
 
@@ -59,7 +112,31 @@ The default `core` profile is deliberately compact. Additional profiles advertis
 
 `unsafe` and emulator profiles are reserved but do not expose raw shell in this release.
 
-## Cursor config
+## Client configs
+
+Stdio launch (pin the published version):
+
+```text
+npx -y polyscreen-mcp@0.6.0 --profile core diagnostics
+```
+
+`diagnostics` is required for logcat start/stop, activity tops, wake, and night-mode tools. After editing config or reconnecting, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. Prefer an MCP host that speaks `2026-07-28` so the client negotiates the modern era instead of falling back to 2025 `initialize`.
+
+| Client | Config file | Root key |
+|--------|-------------|----------|
+| **Cursor** | `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` | `mcpServers` |
+| **Claude Desktop** | macOS `~/Library/Application Support/Claude/claude_desktop_config.json` · Linux `~/.config/Claude/claude_desktop_config.json` · Windows `%APPDATA%\Claude\claude_desktop_config.json` | `mcpServers` |
+| **Claude Code** | `.mcp.json` (project) or `~/.claude/settings.json` | `mcpServers` |
+| **VS Code / Copilot** | `.vscode/mcp.json` or **MCP: Open User Configuration** | `servers` (+ `"type": "stdio"`) |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` | `mcpServers` |
+| **Continue** | `.continue/mcpServers/*.yaml` (preferred) or `~/.continue/config.yaml` | `mcpServers` |
+| **Zed** | `~/.config/zed/settings.json` | `context_servers` |
+| **Gemini CLI** | `~/.gemini/settings.json` | `mcpServers` |
+| **Cline / Roo** | MCP Servers panel → Edit Configuration | `mcpServers` |
+
+### Cursor / Claude Desktop / Windsurf / Claude Code / Gemini CLI / Cline
+
+Same `mcpServers` shape (merge into the existing object):
 
 ```json
 {
@@ -72,9 +149,66 @@ The default `core` profile is deliberately compact. Additional profiles advertis
 }
 ```
 
-The example pins `0.6.0`. After editing config or reconnecting the MCP server, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. If the tool list looks stale, toggle the server off/on in Cursor MCP settings so tool-list change notifications (`list_changed` / `subscriptions/listen`) are applied.
+If the tool list looks stale in Cursor, toggle the server off/on so tool-list change notifications (`list_changed` / `subscriptions/listen`) are applied.
 
-`diagnostics` is required for logcat start/stop, activity tops, wake, and night-mode tools.
+### VS Code (GitHub Copilot)
+
+Workspace `.vscode/mcp.json` — note the `servers` root key (not `mcpServers`):
+
+```json
+{
+  "servers": {
+    "polyscreen": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "polyscreen-mcp@0.6.0", "--profile", "core", "diagnostics"]
+    }
+  }
+}
+```
+
+### Continue
+
+Preferred: workspace `.continue/mcpServers/polyscreen.yaml` (Continue also accepts the same `mcpServers` list in `~/.continue/config.yaml`, and can load Claude/Cursor-style JSON dropped into `.continue/mcpServers/`):
+
+```yaml
+name: PolyScreen MCP
+version: 0.6.0
+schema: v1
+mcpServers:
+  - name: polyscreen
+    type: stdio
+    command: npx
+    args:
+      - -y
+      - polyscreen-mcp@0.6.0
+      - --profile
+      - core
+      - diagnostics
+```
+
+### Zed
+
+`~/.config/zed/settings.json` (flat `command` + `args` — not a nested `command.path` object):
+
+```json
+{
+  "context_servers": {
+    "polyscreen": {
+      "command": "npx",
+      "args": ["-y", "polyscreen-mcp@0.6.0", "--profile", "core", "diagnostics"]
+    }
+  }
+}
+```
+
+### Local Streamable HTTP (any client with URL transport)
+
+```bash
+polyscreen-mcp --listen 3300 --token "replace-with-a-secret"
+```
+
+Endpoint: `http://127.0.0.1:3300/mcp`. HTTP always binds to loopback, validates `Host` and `Origin`, and optionally requires the configured bearer token.
 
 ## Core tools
 
@@ -361,6 +495,14 @@ pnpm test:device:destructive
 
 The destructive suite refuses to run without the acknowledgement variable and never chooses a device serial implicitly. Override `POLYSCREEN_FIXTURE_APK` when testing an externally built fixture.
 
+---
+
+## Branding
+
+The logo wordmark uses **[Baz](https://www.1001fonts.com/baz-font.html)** (Baz Light) by fakharia (SIL OFL) — the same Arabic typeface as [Siglat](https://github.com/Zyzto/Siglat) and [Edadat](https://github.com/Zyzto/Edadat). The face is vendored at [`assets/fonts/baz-Light.otf`](assets/fonts/baz-Light.otf); the SVG outlines HarfBuzz-shaped <span dir="rtl">شــاشات</span> (tatweel after <span dir="rtl">ش</span>, not after <span dir="rtl">ا</span>) so GitHub/npm render without loading the font.
+
+---
+
 ## License
 
-Apache-2.0.
+[MPL-2.0](LICENSE) — weak copyleft, commercial use allowed. Modified package files stay under MPL; your app can remain closed-source.
