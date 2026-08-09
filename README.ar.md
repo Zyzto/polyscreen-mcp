@@ -162,7 +162,7 @@ stdio يبقى الافتراضي. الخادم يتحدث MCP <span dir="ltr"><
 </div>
 
 ```text
-npx -y polyscreen-mcp@0.6.0 --profile core diagnostics
+npx -y polyscreen-mcp@0.6.1 --profile core diagnostics
 ```
 
 <div dir="rtl" lang="ar">
@@ -196,7 +196,7 @@ npx -y polyscreen-mcp@0.6.0 --profile core diagnostics
   "mcpServers": {
     "polyscreen": {
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.6.0", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.6.1", "--profile", "core", "diagnostics"]
     }
   }
 }
@@ -216,7 +216,7 @@ npx -y polyscreen-mcp@0.6.0 --profile core diagnostics
     "polyscreen": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.6.0", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.6.1", "--profile", "core", "diagnostics"]
     }
   }
 }
@@ -232,7 +232,7 @@ npx -y polyscreen-mcp@0.6.0 --profile core diagnostics
 
 ```yaml
 name: PolyScreen MCP
-version: 0.6.0
+version: 0.6.1
 schema: v1
 mcpServers:
   - name: polyscreen
@@ -240,7 +240,7 @@ mcpServers:
     command: npx
     args:
       - -y
-      - polyscreen-mcp@0.6.0
+      - polyscreen-mcp@0.6.1
       - --profile
       - core
       - diagnostics
@@ -259,7 +259,7 @@ mcpServers:
   "context_servers": {
     "polyscreen": {
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.6.0", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.6.1", "--profile", "core", "diagnostics"]
     }
   }
 }
