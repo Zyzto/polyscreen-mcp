@@ -61,16 +61,16 @@ On npm: [`polyscreen-mcp`](https://www.npmjs.com/package/polyscreen-mcp) · Repo
 
 ## Features at a glance
 
-| Area | What you get |
-|------|----------------|
-| **Displays** | Logical ↔ physical ID correlation; capture/input stay on the same display |
-| **Input** | Device-probed `input` help — keys, gamepad, touch, display targeting |
-| **UI** | Snapshot / find / wait without treating `uiautomator` as multi-display |
-| **Evidence** | Structured JSON tool results (not prose agents must scrape) |
-| **Sessions** | Async record / focus / logcat with marks and wall-clock join keys |
-| **Analysis** | Black/dim flash detection via ffmpeg; theme-flash reports |
-| **Profiles** | Compact `core` plus opt-in apps, diagnostics, files, performance, companion |
-| **Transport** | Stdio default; loopback Streamable HTTP with Host/Origin + optional bearer |
+| Area          | What you get                                                                |
+| ------------- | --------------------------------------------------------------------------- |
+| **Displays**  | Logical ↔ physical ID correlation; capture/input stay on the same display   |
+| **Input**     | Device-probed `input` help — keys, gamepad, touch, display targeting        |
+| **UI**        | Snapshot / find / wait without treating `uiautomator` as multi-display      |
+| **Evidence**  | Structured JSON tool results (not prose agents must scrape)                 |
+| **Sessions**  | Async record / focus / logcat with marks and wall-clock join keys           |
+| **Analysis**  | Black/dim flash detection via ffmpeg; theme-flash reports                   |
+| **Profiles**  | Compact `core` plus opt-in apps, diagnostics, files, performance, companion |
+| **Transport** | Stdio default; loopback Streamable HTTP with Host/Origin + optional bearer  |
 
 **Platforms:** Android 11+ (multi-display baseline). Host: Node.js 22.12+, `adb` on `PATH`.
 
@@ -122,17 +122,17 @@ npx -y polyscreen-mcp@0.6.0 --profile core diagnostics
 
 `diagnostics` is required for logcat start/stop, activity tops, wake, and night-mode tools. After editing config or reconnecting, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. Prefer an MCP host that speaks `2026-07-28` so the client negotiates the modern era instead of falling back to 2025 `initialize`.
 
-| Client | Config file | Root key |
-|--------|-------------|----------|
-| **Cursor** | `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` | `mcpServers` |
-| **Claude Desktop** | macOS `~/Library/Application Support/Claude/claude_desktop_config.json` · Linux `~/.config/Claude/claude_desktop_config.json` · Windows `%APPDATA%\Claude\claude_desktop_config.json` | `mcpServers` |
-| **Claude Code** | `.mcp.json` (project) or `~/.claude/settings.json` | `mcpServers` |
-| **VS Code / Copilot** | `.vscode/mcp.json` or **MCP: Open User Configuration** | `servers` (+ `"type": "stdio"`) |
-| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` | `mcpServers` |
-| **Continue** | `.continue/mcpServers/*.yaml` (preferred) or `~/.continue/config.yaml` | `mcpServers` |
-| **Zed** | `~/.config/zed/settings.json` | `context_servers` |
-| **Gemini CLI** | `~/.gemini/settings.json` | `mcpServers` |
-| **Cline / Roo** | MCP Servers panel → Edit Configuration | `mcpServers` |
+| Client                | Config file                                                                                                                                                                           | Root key                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| **Cursor**            | `.cursor/mcp.json` (project) or `~/.cursor/mcp.json`                                                                                                                                  | `mcpServers`                    |
+| **Claude Desktop**    | macOS `~/Library/Application Support/Claude/claude_desktop_config.json` · Linux `~/.config/Claude/claude_desktop_config.json` · Windows `%APPDATA%\Claude\claude_desktop_config.json` | `mcpServers`                    |
+| **Claude Code**       | `.mcp.json` (project) or `~/.claude/settings.json`                                                                                                                                    | `mcpServers`                    |
+| **VS Code / Copilot** | `.vscode/mcp.json` or **MCP: Open User Configuration**                                                                                                                                | `servers` (+ `"type": "stdio"`) |
+| **Windsurf**          | `~/.codeium/windsurf/mcp_config.json`                                                                                                                                                 | `mcpServers`                    |
+| **Continue**          | `.continue/mcpServers/*.yaml` (preferred) or `~/.continue/config.yaml`                                                                                                                | `mcpServers`                    |
+| **Zed**               | `~/.config/zed/settings.json`                                                                                                                                                         | `context_servers`               |
+| **Gemini CLI**        | `~/.gemini/settings.json`                                                                                                                                                             | `mcpServers`                    |
+| **Cline / Roo**       | MCP Servers panel → Edit Configuration                                                                                                                                                | `mcpServers`                    |
 
 ### Cursor / Claude Desktop / Windsurf / Claude Code / Gemini CLI / Cline
 

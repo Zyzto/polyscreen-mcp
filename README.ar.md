@@ -74,16 +74,16 @@
 
 ## ماذا تقدّم؟
 
-| المجال | ماذا تحصل |
-|--------|-----------|
-| **الشاشات** | ربط logical ↔ physical؛ الالتقاط والإدخال يبقيان على نفس الشاشة |
+| المجال      | ماذا تحصل                                                                                           |
+| ----------- | --------------------------------------------------------------------------------------------------- |
+| **الشاشات** | ربط logical ↔ physical؛ الالتقاط والإدخال يبقيان على نفس الشاشة                                     |
 | **الإدخال** | استكشاف <span dir="ltr"><code>input</code></span> على الجهاز — مفاتيح، gamepad، لمس، استهداف الشاشة |
-| **الواجهة** | snapshot / find / wait دون اعتبار uiautomator متعدد الشاشات |
-| **الأدلة** | نتائج أدوات JSON منظَّمة (لا نثرًا يُقشَط) |
-| **الجلسات** | تسجيل / focus / logcat غير متزامن مع علامات ومفاتيح زمن جدار |
-| **التحليل** | كشف ومضات سوداء/خافتة عبر ffmpeg؛ تقارير theme-flash |
-| **الملفات** | <span dir="ltr"><code>core</code></span> مضغوط + تطبيقات وتشخيص وملفات وأداء وcompanion اختيارية |
-| **النقل** | stdio افتراضيًا؛ Streamable HTTP على loopback مع Host/Origin وbearer اختياري |
+| **الواجهة** | snapshot / find / wait دون اعتبار uiautomator متعدد الشاشات                                         |
+| **الأدلة**  | نتائج أدوات JSON منظَّمة (لا نثرًا يُقشَط)                                                          |
+| **الجلسات** | تسجيل / focus / logcat غير متزامن مع علامات ومفاتيح زمن جدار                                        |
+| **التحليل** | كشف ومضات سوداء/خافتة عبر ffmpeg؛ تقارير theme-flash                                                |
+| **الملفات** | <span dir="ltr"><code>core</code></span> مضغوط + تطبيقات وتشخيص وملفات وأداء وcompanion اختيارية    |
+| **النقل**   | stdio افتراضيًا؛ Streamable HTTP على loopback مع Host/Origin وbearer اختياري                        |
 
 **المنصات:** أندرويد 11+ (خط أساس تعدد الشاشات). المضيف: Node.js 22.12+ و<span dir="ltr"><code>adb</code></span> على <span dir="ltr"><code>PATH</code></span>.
 
@@ -134,16 +134,16 @@ stdio يبقى الافتراضي. الخادم يتحدث MCP <span dir="ltr"><
 
 </div>
 
-| Profile | القدرات |
-| --- | --- |
-| `core` | معلومات الخادم، الأجهزة، الشاشات، لقطات، تسجيل/تحليل غير متزامن، focus traces، artifacts، UI، إدخال، تطبيقات |
-| `apps` | الحزم، أدوار التطبيقات الافتراضية، الإشعارات، وبث محدود |
-| `diagnostics` | شرائح dumpsys، logcat، إيقاظ، وضع الليل، قراءة shared_prefs للتطبيقات القابلة للتصحيح |
-| `files` | دفع/سحب مقيّد تحت جذور معتمدة |
-| `performance` | لقطات CPU والطاقة والبطارية والذاكرة والإطارات |
-| `device-admin` | منح/سحب أذونات وقت التشغيل صراحةً |
-| `companion` | نوافذ accessibility لكل الشاشات ومفاتيح press/down/up صريحة |
-| `all` | كل الملفات المنفَّذة |
+| Profile        | القدرات                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------ |
+| `core`         | معلومات الخادم، الأجهزة، الشاشات، لقطات، تسجيل/تحليل غير متزامن، focus traces، artifacts، UI، إدخال، تطبيقات |
+| `apps`         | الحزم، أدوار التطبيقات الافتراضية، الإشعارات، وبث محدود                                                      |
+| `diagnostics`  | شرائح dumpsys، logcat، إيقاظ، وضع الليل، قراءة shared_prefs للتطبيقات القابلة للتصحيح                        |
+| `files`        | دفع/سحب مقيّد تحت جذور معتمدة                                                                                |
+| `performance`  | لقطات CPU والطاقة والبطارية والذاكرة والإطارات                                                               |
+| `device-admin` | منح/سحب أذونات وقت التشغيل صراحةً                                                                            |
+| `companion`    | نوافذ accessibility لكل الشاشات ومفاتيح press/down/up صريحة                                                  |
+| `all`          | كل الملفات المنفَّذة                                                                                         |
 
 <div dir="rtl" lang="ar">
 
@@ -171,17 +171,17 @@ npx -y polyscreen-mcp@0.6.0 --profile core diagnostics
 
 </div>
 
-| العميل | ملف الإعداد | المفتاح الجذر |
-|--------|-------------|---------------|
-| **Cursor** | <span dir="ltr"><code>.cursor/mcp.json</code></span> أو <span dir="ltr"><code>~/.cursor/mcp.json</code></span> | <span dir="ltr"><code>mcpServers</code></span> |
-| **Claude Desktop** | macOS / Linux / Windows — انظر README الإنجليزي للمسارات | <span dir="ltr"><code>mcpServers</code></span> |
-| **Claude Code** | <span dir="ltr"><code>.mcp.json</code></span> أو <span dir="ltr"><code>~/.claude/settings.json</code></span> | <span dir="ltr"><code>mcpServers</code></span> |
-| **VS Code / Copilot** | <span dir="ltr"><code>.vscode/mcp.json</code></span> | <span dir="ltr"><code>servers</code></span> (+ <span dir="ltr"><code>"type": "stdio"</code></span>) |
-| **Windsurf** | <span dir="ltr"><code>~/.codeium/windsurf/mcp_config.json</code></span> | <span dir="ltr"><code>mcpServers</code></span> |
-| **Continue** | <span dir="ltr"><code>.continue/mcpServers/*.yaml</code></span> (مفضّل) | <span dir="ltr"><code>mcpServers</code></span> |
-| **Zed** | <span dir="ltr"><code>~/.config/zed/settings.json</code></span> | <span dir="ltr"><code>context_servers</code></span> |
-| **Gemini CLI** | <span dir="ltr"><code>~/.gemini/settings.json</code></span> | <span dir="ltr"><code>mcpServers</code></span> |
-| **Cline / Roo** | لوحة MCP Servers → Edit Configuration | <span dir="ltr"><code>mcpServers</code></span> |
+| العميل                | ملف الإعداد                                                                                                    | المفتاح الجذر                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| **Cursor**            | <span dir="ltr"><code>.cursor/mcp.json</code></span> أو <span dir="ltr"><code>~/.cursor/mcp.json</code></span> | <span dir="ltr"><code>mcpServers</code></span>                                                      |
+| **Claude Desktop**    | macOS / Linux / Windows — انظر README الإنجليزي للمسارات                                                       | <span dir="ltr"><code>mcpServers</code></span>                                                      |
+| **Claude Code**       | <span dir="ltr"><code>.mcp.json</code></span> أو <span dir="ltr"><code>~/.claude/settings.json</code></span>   | <span dir="ltr"><code>mcpServers</code></span>                                                      |
+| **VS Code / Copilot** | <span dir="ltr"><code>.vscode/mcp.json</code></span>                                                           | <span dir="ltr"><code>servers</code></span> (+ <span dir="ltr"><code>"type": "stdio"</code></span>) |
+| **Windsurf**          | <span dir="ltr"><code>~/.codeium/windsurf/mcp_config.json</code></span>                                        | <span dir="ltr"><code>mcpServers</code></span>                                                      |
+| **Continue**          | <span dir="ltr"><code>.continue/mcpServers/*.yaml</code></span> (مفضّل)                                        | <span dir="ltr"><code>mcpServers</code></span>                                                      |
+| **Zed**               | <span dir="ltr"><code>~/.config/zed/settings.json</code></span>                                                | <span dir="ltr"><code>context_servers</code></span>                                                 |
+| **Gemini CLI**        | <span dir="ltr"><code>~/.gemini/settings.json</code></span>                                                    | <span dir="ltr"><code>mcpServers</code></span>                                                      |
+| **Cline / Roo**       | لوحة MCP Servers → Edit Configuration                                                                          | <span dir="ltr"><code>mcpServers</code></span>                                                      |
 
 <div dir="rtl" lang="ar">
 
