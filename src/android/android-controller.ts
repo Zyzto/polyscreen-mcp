@@ -22,10 +22,31 @@ import type {
   OperationEnvelope,
 } from "./types.js";
 
-const SAFE_SERIAL = /^[A-Za-z0-9._:[\]-]+$/;
+// mDNS serials renamed by Bonjour conflict resolution contain a space and
+// parentheses ("adb-XYZ (3)._adb-tls-connect._tcp"), so single inner spaces are
+// allowed. ADB is always spawned with an argv array, never a host shell.
+const SAFE_SERIAL_TOKEN = String.raw`[A-Za-z0-9._:[\]()@+-]+`;
+const SAFE_SERIAL = new RegExp(
+  `^${SAFE_SERIAL_TOKEN}(?: ${SAFE_SERIAL_TOKEN})*$`,
+);
 const SAFE_PACKAGE = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+$/;
 const SAFE_COMPONENT = /^[A-Za-z0-9_.$]+\/[A-Za-z0-9_.$]+$/;
 const SAFE_KEY = /^(?:KEYCODE_)?[A-Z0-9_]+$|^\d{1,4}$/;
+
+// `input` subcommand -> the capability flag parsed from `input` help.
+const INPUT_COMMAND_CAPABILITIES: Record<
+  string,
+  keyof DeviceCapabilities["input"]["commands"]
+> = {
+  text: "text",
+  keyevent: "keyevent",
+  tap: "tap",
+  swipe: "swipe",
+  draganddrop: "dragAndDrop",
+  motionevent: "motionEvent",
+  keycombination: "keyCombination",
+  scroll: "scroll",
+};
 
 export interface KeyInput {
   key: string;
@@ -483,6 +504,8 @@ export class AndroidController {
       ["touchscreen", "-d", String(displayId), "tap", String(x), String(y)],
       { x, y },
       signal,
+      [],
+      [{ x, y }],
     );
   }
 
@@ -516,6 +539,8 @@ export class AndroidController {
       ],
       { start, end, durationMs },
       signal,
+      [],
+      [start, end],
     );
   }
 
@@ -555,6 +580,8 @@ export class AndroidController {
       ],
       { start, end, durationMs },
       signal,
+      [],
+      [start, end],
     );
   }
 
@@ -871,33 +898,26 @@ export class AndroidController {
     data: T,
     signal?: AbortSignal,
     warnings: string[] = [],
+    points: readonly { x: number; y: number }[] = [],
   ): Promise<OperationEnvelope<T>> {
-    await this.requireDisplay(serial, displayId, signal);
+    const display = await this.requireDisplay(serial, displayId, signal);
+    assertPointsOnDisplay(display, points);
     const capabilities = await this.inspectDevice(serial, { signal });
     const source = inputArgs[0];
     const commandIndex = inputArgs.findIndex((value) =>
-      [
-        "text",
-        "keyevent",
-        "tap",
-        "swipe",
-        "draganddrop",
-        "motionevent",
-        "keycombination",
-        "scroll",
-      ].includes(value.toLowerCase()),
+      Object.hasOwn(INPUT_COMMAND_CAPABILITIES, value.toLowerCase()),
     );
     const command = inputArgs[commandIndex]?.toLowerCase();
-    const commandKey = command === "draganddrop" ? "dragAndDrop" : command;
+    const commandKey = command
+      ? INPUT_COMMAND_CAPABILITIES[command]
+      : undefined;
     const advertisedCommands = Object.values(capabilities.input.commands).some(
       Boolean,
     );
     if (
       commandKey &&
       advertisedCommands &&
-      !capabilities.input.commands[
-        commandKey as keyof typeof capabilities.input.commands
-      ]
+      !capabilities.input.commands[commandKey]
     ) {
       throw new Error(`Device input command is not supported: ${command}`);
     }
@@ -1073,4 +1093,25 @@ export class AndroidController {
 
 function isTcpSerial(serial: string): boolean {
   return /^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(serial);
+}
+
+/**
+ * `input tap` accepts off-screen coordinates and silently drops the event, so a
+ * stale node bound or a coordinate from the wrong display looks like a tap that
+ * did nothing. Refuse those instead, and say what the display actually is.
+ */
+function assertPointsOnDisplay(
+  display: AndroidDisplay,
+  points: readonly { x: number; y: number }[],
+): void {
+  const { width, height } = display;
+  if (!width || !height) return;
+  for (const point of points) {
+    if (point.x >= 0 && point.y >= 0 && point.x < width && point.y < height) {
+      continue;
+    }
+    throw new Error(
+      `Point (${point.x}, ${point.y}) is outside display ${display.logicalId}, which is ${width}x${height}`,
+    );
+  }
 }

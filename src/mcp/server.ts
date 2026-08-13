@@ -16,7 +16,12 @@ import {
 } from "../android/recording-analyze.js";
 import { RecordingSessionManager } from "../android/record-sessions.js";
 import { SystemOps } from "../android/system-ops.js";
-import { findUiNodes, parseUiNodes } from "../android/ui.js";
+import {
+  findUiNodes,
+  parseUiNodes,
+  serializeUiMatches,
+  withTapPlans,
+} from "../android/ui.js";
 import { ArtifactStore } from "../artifacts/store.js";
 import { CompanionManager } from "../backends/companion.js";
 import { abortableDelay } from "../utils/abortable-delay.js";
@@ -1046,7 +1051,7 @@ export function createPolyScreenRuntime(
       {
         title: "Snapshot Android UI",
         description:
-          "Return parsed accessibility nodes. Portable ADB supports only display 0; other displays require the companion.",
+          "Return parsed accessibility nodes, each with the point that actually routes a tap to it. Portable ADB supports only display 0; other displays require the companion.",
         inputSchema: z.object({
           serial: serialSchema,
           displayId: displayIdSchema,
@@ -1071,7 +1076,9 @@ export function createPolyScreenRuntime(
           serial,
           displayId,
           backend: "adb-uiautomator",
-          nodes: allNodes.slice(0, 500),
+          nodes: serializeUiMatches(
+            withTapPlans(allNodes, allNodes.slice(0, 500)),
+          ),
           truncated: allNodes.length > 500,
         };
         return { content: jsonContent(result), structuredContent: result };
@@ -1092,7 +1099,7 @@ export function createPolyScreenRuntime(
       {
         title: "Find Android UI nodes",
         description:
-          "Find accessibility nodes by text, content description, or resource ID.",
+          "Find accessibility nodes by text, content description, or resource ID. Tap using each match's tap.x/tap.y, which accounts for clickable containers and overlays; the raw center often belongs to another view.",
         inputSchema: findInput,
         outputSchema: z.object({
           matches: z.array(z.record(z.string(), z.unknown())),
@@ -1106,9 +1113,12 @@ export function createPolyScreenRuntime(
           displayId,
           ctx.mcpReq.signal,
         );
-        const matches = findUiNodes(parseUiNodes(xml), query);
+        const nodes = parseUiNodes(xml);
+        const matches = findUiNodes(nodes, query);
         const result = {
-          matches: matches.slice(0, 100),
+          matches: serializeUiMatches(
+            withTapPlans(nodes, matches.slice(0, 100)),
+          ),
           count: matches.length,
         };
         return { content: jsonContent(result), structuredContent: result };
@@ -1144,13 +1154,16 @@ export function createPolyScreenRuntime(
             displayId,
             ctx.mcpReq.signal,
           );
-          const matches = findUiNodes(parseUiNodes(xml), query);
+          const nodes = parseUiNodes(xml);
+          const matches = findUiNodes(nodes, query);
           if (matches.length > 0) {
             const result = {
               found: true,
               attempts,
               elapsedMs: Math.round(performance.now() - started),
-              matches: matches.slice(0, 100),
+              matches: serializeUiMatches(
+                withTapPlans(nodes, matches.slice(0, 100)),
+              ),
             };
             return { content: jsonContent(result), structuredContent: result };
           }
@@ -1171,7 +1184,7 @@ export function createPolyScreenRuntime(
       {
         title: "Tap Android display",
         description:
-          "Inject a display-targeted touchscreen tap in logical display coordinates.",
+          "Inject a display-targeted touchscreen tap in logical display coordinates. Prefer the tap point reported by mobile_ui_find over a node's raw center.",
         inputSchema: z.object({
           serial: serialSchema,
           displayId: displayIdSchema,

@@ -176,4 +176,25 @@ describe("mobile_devices_list reachability", () => {
       new AndroidController(runner).requireDevice("stale:5555"),
     ).rejects.toThrow(/not reachable/);
   });
+
+  it("accepts mDNS serials that contain a space", async () => {
+    const serial = "adb-R5CX91NE81K-zESn3H (3)._adb-tls-connect._tcp";
+    const runner = new FakeAdbRunner()
+      .respond(
+        ["devices", "-l"],
+        `List of devices attached\n${serial} device product:r12sxxx model:SM_S721B device:r12s transport_id:22\n`,
+      )
+      .respond(["get-state"], "device", { serial })
+      .respond(["shell", "getprop", "ro.serialno"], "R5CX91NE81K", { serial });
+
+    const device = await new AndroidController(runner).requireDevice(serial);
+    expect(device).toMatchObject({ serial, state: "device", reachable: true });
+  });
+
+  it("rejects serials with characters ADB never emits", async () => {
+    const runner = new FakeAdbRunner();
+    await expect(
+      new AndroidController(runner).requireDevice("serial-1; rm -rf /"),
+    ).rejects.toThrow(/Invalid device serial/);
+  });
 });

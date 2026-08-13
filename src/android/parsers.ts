@@ -5,6 +5,25 @@ import type {
 } from "./types.js";
 
 const propertyPattern = /\[([^\]]+)\]: \[([^\]]*)\]/g;
+const metadataToken = /^[a-z][a-z0-9_]*:/;
+const noPermissions = /^(.+?)\s+no permissions\b/;
+
+// Longest first so "no permissions" wins over a bare suffix match.
+const deviceStates = [
+  "no permissions",
+  "unauthorized",
+  "authorizing",
+  "bootloader",
+  "connecting",
+  "detached",
+  "recovery",
+  "sideload",
+  "offline",
+  "unknown",
+  "device",
+  "rescue",
+  "host",
+];
 
 export function parseDevices(output: string): AndroidDevice[] {
   return output
@@ -13,7 +32,7 @@ export function parseDevices(output: string): AndroidDevice[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [serial = "", state = "unknown", ...metadata] = line.split(/\s+/);
+      const { serial, state, metadata } = splitDeviceLine(line);
       const values = Object.fromEntries(
         metadata
           .map((token) => token.split(/:(.*)/s))
@@ -31,6 +50,45 @@ export function parseDevices(output: string): AndroidDevice[] {
         ...(values.transport_id ? { transportId: values.transport_id } : {}),
       };
     });
+}
+
+/**
+ * `adb devices -l` prints "<serial> <state> [key:value ...]", but serials are
+ * not whitespace-free: Bonjour conflict resolution renames duplicate wireless
+ * debugging services to names like "adb-XYZ (3)._adb-tls-connect._tcp", and
+ * "no permissions" states carry a trailing explanation. So the state is located
+ * from the right instead of taking the first token as the serial.
+ */
+function splitDeviceLine(line: string): {
+  serial: string;
+  state: string;
+  metadata: string[];
+} {
+  const tokens = line.split(/\s+/);
+  const metadata: string[] = [];
+  while (tokens.length > 2 && metadataToken.test(tokens.at(-1) ?? "")) {
+    metadata.unshift(tokens.pop() ?? "");
+  }
+
+  const head = tokens.join(" ");
+  for (const state of deviceStates) {
+    if (head.endsWith(` ${state}`)) {
+      return { serial: head.slice(0, -state.length - 1), state, metadata };
+    }
+  }
+
+  const denied = noPermissions.exec(head);
+  if (denied?.[1]) {
+    return { serial: denied[1], state: "no permissions", metadata };
+  }
+
+  const boundary = head.lastIndexOf(" ");
+  if (boundary === -1) return { serial: head, state: "unknown", metadata };
+  return {
+    serial: head.slice(0, boundary),
+    state: head.slice(boundary + 1),
+    metadata,
+  };
 }
 
 export function parseProperties(output: string): Record<string, string> {

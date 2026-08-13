@@ -171,6 +171,15 @@ describe("RecordingSessionManager", () => {
     expect(started.recordId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(started.physicalDisplayId).toBe(physicalDisplayId);
 
+    // ADB joins argv, so the whole script must arrive as one quoted word or the
+    // device-side `sh -c` drops every argument after "screenrecord".
+    const startCall = runner.calls.find(
+      (call) => call.args[1] === "sh" && call.args[2] === "-c",
+    );
+    expect(startCall?.args).toHaveLength(4);
+    expect(startCall?.args[3]).toMatch(/^'screenrecord --display-id \d+ /);
+    expect(startCall?.args[3]).toMatch(/echo \$!'$/);
+
     const mark = manager.mark("serial", started.recordId, "press-a");
     expect(mark.label).toBe("press-a");
     expect(mark.offsetMs).toBeGreaterThanOrEqual(0);

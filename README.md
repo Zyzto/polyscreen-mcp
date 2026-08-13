@@ -117,7 +117,7 @@ The default `core` profile is deliberately compact. Additional profiles advertis
 Stdio launch (pin the published version):
 
 ```text
-npx -y polyscreen-mcp@0.6.1 --profile core diagnostics
+npx -y polyscreen-mcp@0.7.0 --profile core diagnostics
 ```
 
 `diagnostics` is required for logcat start/stop, activity tops, wake, and night-mode tools. After editing config or reconnecting, call `mobile_server_info` once and confirm `version`, `toolCount`, and detective tools match a fresh `tools/list`. Prefer an MCP host that speaks `2026-07-28` so the client negotiates the modern era instead of falling back to 2025 `initialize`.
@@ -143,7 +143,7 @@ Same `mcpServers` shape (merge into the existing object):
   "mcpServers": {
     "polyscreen": {
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.6.1", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.7.0", "--profile", "core", "diagnostics"]
     }
   }
 }
@@ -161,7 +161,7 @@ Workspace `.vscode/mcp.json` — note the `servers` root key (not `mcpServers`):
     "polyscreen": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.6.1", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.7.0", "--profile", "core", "diagnostics"]
     }
   }
 }
@@ -173,7 +173,7 @@ Preferred: workspace `.continue/mcpServers/polyscreen.yaml` (Continue also accep
 
 ```yaml
 name: PolyScreen MCP
-version: 0.6.1
+version: 0.7.0
 schema: v1
 mcpServers:
   - name: polyscreen
@@ -181,7 +181,7 @@ mcpServers:
     command: npx
     args:
       - -y
-      - polyscreen-mcp@0.6.1
+      - polyscreen-mcp@0.7.0
       - --profile
       - core
       - diagnostics
@@ -196,7 +196,7 @@ mcpServers:
   "context_servers": {
     "polyscreen": {
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.6.1", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.7.0", "--profile", "core", "diagnostics"]
     }
   }
 }
@@ -399,6 +399,28 @@ The ADB backend probes the device's own `input` help and exposes only supported 
 - taps, swipes, text, and modern command capabilities reported by inspection.
 
 ADB shell gamepad events still use a synthetic virtual device identity. They are not equivalent to a physical controller descriptor.
+
+Points outside the target display are rejected. `input tap` exits `0` for off-screen coordinates and drops the event, which is indistinguishable from a tap that did nothing.
+
+### Where to tap
+
+Android delivers a touch to the **last-painted clickable view** under the point, so the geometric centre of a label is frequently the wrong coordinate: the label itself is usually not clickable, and floating search bars, install buttons, and bottom sheets are painted over the rows behind them.
+
+Every node from `mobile_ui_snapshot`, `mobile_ui_find`, and `mobile_ui_wait` therefore carries a resolved tap plan alongside its raw geometry:
+
+| Field        | Meaning                                                                                                   |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| `center`     | Raw geometric centre of `bounds`. Reported as-is; it may belong to another view.                          |
+| `tap`        | `{ x, y, nodeIndex, via, adjusted }` — the point that reaches this node. Pass this to `mobile_input_tap`. |
+| `tappable`   | `false` when the node is off-screen or completely covered.                                                |
+| `occludedBy` | The clickable node that would swallow a tap on `center`.                                                  |
+| `warnings`   | Why the plan differs from `center`, or why there is no plan.                                              |
+
+Inside `tap`, `nodeIndex` and `via` name the view that receives the click — `self`, an `ancestor` container, or `unhandled` when nothing in the branch is exposed as clickable and the tap depends on an undeclared touch handler. `adjusted` is `true` when the point had to move off that view's own centre to dodge something painted over it. When a node is not tappable, scroll it clear or dismiss the overlay named in `occludedBy` instead of tapping blind.
+
+A disabled control counts as an occluder. `View.onTouchEvent` returns `clickable` before it checks whether the view is enabled, so a greyed-out button still swallows every touch that lands on it.
+
+Boolean node attributes are reported as a `flags` array listing only what is true, for example `"flags": ["clickable", "enabled", "focusable"]`. Empty strings and false flags are omitted rather than serialised, which keeps a 500-node snapshot readable.
 
 ## Optional companion
 

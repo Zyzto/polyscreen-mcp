@@ -162,13 +162,12 @@ export class RecordingSessionManager {
 
       // Background on-device so the host queue stays free for interleaved input.
       session.startedAtMs = Date.now();
+      // ADB joins argv into a single device-side command line, so the script has
+      // to reach the device as one quoted word or `sh -c` would only take
+      // "screenrecord" as its script and drop every argument after it.
+      const script = `screenrecord --display-id ${physicalDisplayId} --time-limit ${MAX_RECORD_SECONDS} ${quoteRemoteShellArg(remotePath)} >/dev/null 2>&1 & echo $!`;
       const pidText = await this.adb.text(
-        [
-          "shell",
-          "sh",
-          "-c",
-          `screenrecord --display-id ${physicalDisplayId} --time-limit ${MAX_RECORD_SECONDS} ${quoteRemoteShellArg(remotePath)} >/dev/null 2>&1 & echo $!`,
-        ],
+        ["shell", "sh", "-c", quoteRemoteShellArg(script)],
         { serial, signal, timeoutMs: 15_000 },
       );
       const remotePid = Number(pidText.trim().split(/\r?\n/).at(-1));

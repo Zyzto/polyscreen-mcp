@@ -162,7 +162,7 @@ stdio يبقى الافتراضي. الخادم يتحدث MCP <span dir="ltr"><
 </div>
 
 ```text
-npx -y polyscreen-mcp@0.6.1 --profile core diagnostics
+npx -y polyscreen-mcp@0.7.0 --profile core diagnostics
 ```
 
 <div dir="rtl" lang="ar">
@@ -196,7 +196,7 @@ npx -y polyscreen-mcp@0.6.1 --profile core diagnostics
   "mcpServers": {
     "polyscreen": {
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.6.1", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.7.0", "--profile", "core", "diagnostics"]
     }
   }
 }
@@ -216,7 +216,7 @@ npx -y polyscreen-mcp@0.6.1 --profile core diagnostics
     "polyscreen": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.6.1", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.7.0", "--profile", "core", "diagnostics"]
     }
   }
 }
@@ -232,7 +232,7 @@ npx -y polyscreen-mcp@0.6.1 --profile core diagnostics
 
 ```yaml
 name: PolyScreen MCP
-version: 0.6.1
+version: 0.7.0
 schema: v1
 mcpServers:
   - name: polyscreen
@@ -240,7 +240,7 @@ mcpServers:
     command: npx
     args:
       - -y
-      - polyscreen-mcp@0.6.1
+      - polyscreen-mcp@0.7.0
       - --profile
       - core
       - diagnostics
@@ -259,7 +259,7 @@ mcpServers:
   "context_servers": {
     "polyscreen": {
       "command": "npx",
-      "args": ["-y", "polyscreen-mcp@0.6.1", "--profile", "core", "diagnostics"]
+      "args": ["-y", "polyscreen-mcp@0.7.0", "--profile", "core", "diagnostics"]
     }
   }
 }
@@ -327,6 +327,32 @@ polyscreen-mcp --listen 3300 --token "replace-with-a-secret"
 - الشاشات الافتراضية قد تملك logical دون physical قابل للالتقاط.
 
 تُمثَّل المعرّفات الفيزيائية كنصوص عشرية حتى لا يفقد JavaScript الدقة. الربط يعتمد على <span dir="ltr"><code>DisplayInfo.uniqueId</code></span> وعناوين العرض وأدلة محدودة من dumpsys.
+
+</div>
+
+---
+
+<div dir="rtl" lang="ar">
+
+## أين تضغط؟
+
+يوجّه أندرويد اللمسة إلى **آخر عنصر قابل للنقر مرسوم** تحت النقطة، لذا فإن المركز الهندسي للنص كثيرًا ما يكون الإحداثي الخاطئ: النص نفسه غالبًا غير قابل للنقر، وأشرطة البحث العائمة وأزرار التثبيت والألواح السفلية تُرسم فوق الصفوف خلفها.
+
+لذلك تحمل كل عقدة من <span dir="ltr"><code>mobile_ui_snapshot</code></span> و<span dir="ltr"><code>mobile_ui_find</code></span> و<span dir="ltr"><code>mobile_ui_wait</code></span> خطة ضغط محسوبة إلى جانب هندستها الخام:
+
+- <span dir="ltr"><code>center</code></span> — المركز الهندسي كما هو، وقد يعود لعنصر آخر؛
+- <span dir="ltr"><code>tap</code></span> — النقطة التي تصل فعلًا إلى العقدة، وهي ما يُمرَّر إلى <span dir="ltr"><code>mobile_input_tap</code></span>؛
+- <span dir="ltr"><code>tappable</code></span> — يصبح <span dir="ltr"><code>false</code></span> إذا كانت العقدة خارج الشاشة أو مغطّاة بالكامل؛
+- <span dir="ltr"><code>occludedBy</code></span> — العنصر الذي سيبتلع ضغطة المركز؛
+- <span dir="ltr"><code>warnings</code></span> — سبب اختلاف الخطة عن المركز أو سبب غيابها.
+
+داخل <span dir="ltr"><code>tap</code></span> يحدّد <span dir="ltr"><code>nodeIndex</code></span> و<span dir="ltr"><code>via</code></span> العنصر الذي يستقبل النقرة: <span dir="ltr"><code>self</code></span> أو حاوية <span dir="ltr"><code>ancestor</code></span> أو <span dir="ltr"><code>unhandled</code></span> حين لا يُعلن أي عنصر في الفرع أنه قابل للنقر. ويصبح <span dir="ltr"><code>adjusted</code></span> صحيحًا حين اضطرت النقطة للابتعاد عن مركز ذلك العنصر تفاديًا لما رُسم فوقه.
+
+العنصر المعطّل يُحسب حاجبًا أيضًا: <span dir="ltr"><code>View.onTouchEvent</code></span> يُرجع <span dir="ltr"><code>clickable</code></span> قبل أن يفحص التفعيل، فالزر الرمادي يبتلع اللمسة دون أن يستجيب لها.
+
+تُعاد السمات المنطقية في مصفوفة <span dir="ltr"><code>flags</code></span> تضم ما هو صحيح فقط، وتُحذف القيم الفارغة، حتى تبقى لقطة من ٥٠٠ عقدة قابلة للقراءة.
+
+عندما تكون العقدة غير قابلة للضغط، مرّر الشاشة أو أغلق ما يغطّيها بدل الضغط على العمياء. كما تُرفض النقاط خارج حدود الشاشة، لأن <span dir="ltr"><code>input tap</code></span> ينجح ظاهريًا ثم يُسقط الحدث.
 
 </div>
 

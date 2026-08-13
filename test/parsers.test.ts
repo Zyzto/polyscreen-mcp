@@ -27,6 +27,41 @@ describe("ADB parsers", () => {
     ]);
   });
 
+  it("keeps spaces inside mDNS serials renamed by Bonjour", () => {
+    expect(
+      parseDevices(
+        "List of devices attached\nadb-R5CX91NE81K-zESn3H (3)._adb-tls-connect._tcp device product:r12sxxx model:SM_S721B device:r12s transport_id:22\n",
+      ),
+    ).toEqual([
+      {
+        serial: "adb-R5CX91NE81K-zESn3H (3)._adb-tls-connect._tcp",
+        state: "device",
+        product: "r12sxxx",
+        model: "SM_S721B",
+        device: "r12s",
+        transportId: "22",
+      },
+    ]);
+  });
+
+  it("parses states that carry trailing text or no metadata", () => {
+    expect(
+      parseDevices(
+        [
+          "List of devices attached",
+          "adb-XYZ (2)._adb-tls-connect._tcp offline",
+          "1234567 no permissions (user in plugdev group); see [http://developer.android.com/tools/device.html]",
+          "emulator-5554 unauthorized",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      { serial: "adb-XYZ (2)._adb-tls-connect._tcp", state: "offline" },
+      { serial: "1234567", state: "no permissions" },
+      { serial: "emulator-5554", state: "unauthorized" },
+    ]);
+  });
+
   it("parses getprop output", () => {
     expect(
       parseProperties(

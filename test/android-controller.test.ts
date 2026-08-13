@@ -41,6 +41,51 @@ function displayRunner(): FakeAdbRunner {
     });
 }
 
+const INPUT_HELP = `
+  Usage: input [<source>] [-d DISPLAY_ID] <command> [<arg>...]
+  The sources are: keyboard dpad gamepad touchscreen mouse
+  The commands and default sources are:
+    text <string>
+    keyevent [--longpress|--doubletap] <key code number or name>
+    tap <x> <y>
+    swipe <x1> <y1> <x2> <y2> [duration(ms)]
+    draganddrop <x1> <y1> <x2> <y2> [duration(ms)]
+    motionevent <DOWN|UP|MOVE|CANCEL> <x> <y>
+    keycombination [-t duration(ms)] <key code 1> <key code 2>
+    scroll <x> <y> <hScroll> <vScroll>
+`;
+
+/** Responses for the capability probe behind every input mutation. */
+function capabilityRunner(): FakeAdbRunner {
+  const runner = displayRunner()
+    .respond(["version"], "Android Debug Bridge version 1.0.41")
+    .respond(["shell", "getprop"], "[ro.build.version.sdk]: [33]\n", {
+      serial: SERIAL,
+    })
+    .respond(["features"], "shell_v2 cmd", { serial: SERIAL })
+    .respond(["shell", "input"], INPUT_HELP, { serial: SERIAL });
+  for (const command of [
+    "screencap",
+    "screenrecord",
+    "uiautomator",
+    "getevent",
+    "sendevent",
+    "uinput",
+    "logcat",
+    "perfetto",
+    "simpleperf",
+  ]) {
+    runner.respond(
+      ["shell", "command", "-v", command],
+      `/system/bin/${command}`,
+      {
+        serial: SERIAL,
+      },
+    );
+  }
+  return runner;
+}
+
 describe("AndroidController", () => {
   it("separates logical, physical, and virtual displays", async () => {
     const controller = new AndroidController(displayRunner());
@@ -194,5 +239,74 @@ describe("AndroidController", () => {
     );
 
     expect(result.data.component).toBe("com.example/com.example.MainActivity");
+  });
+
+  it("accepts camelCase-keyed input capabilities for multi-word commands", async () => {
+    const runner = capabilityRunner().respond(
+      [
+        "shell",
+        "input",
+        "keyboard",
+        "-d",
+        "0",
+        "keycombination",
+        "-t",
+        "60",
+        "KEYCODE_CTRL_LEFT",
+        "KEYCODE_A",
+      ],
+      "",
+      { serial: SERIAL },
+    );
+
+    const result = await new AndroidController(runner).inputKeyCombination(
+      SERIAL,
+      0,
+      ["KEYCODE_CTRL_LEFT", "KEYCODE_A"],
+      60,
+      "keyboard",
+    );
+
+    expect(result.data.keys).toEqual(["KEYCODE_CTRL_LEFT", "KEYCODE_A"]);
+  });
+
+  it("taps display coordinates through the display-targeted form", async () => {
+    const runner = capabilityRunner().respond(
+      ["shell", "input", "touchscreen", "-d", "0", "tap", "10", "20"],
+      "",
+      { serial: SERIAL },
+    );
+
+    const result = await new AndroidController(runner).tap(SERIAL, 0, 10, 20);
+
+    expect(result.data).toEqual({ x: 10, y: 20 });
+  });
+
+  // `input tap` exits 0 for off-screen points and drops the event, which reads
+  // as a tap that did nothing.
+  it("rejects points outside the display instead of dropping them", async () => {
+    const controller = new AndroidController(capabilityRunner());
+
+    await expect(controller.tap(SERIAL, 0, 2000, 20)).rejects.toThrow(
+      /outside display 0, which is 1920x1080/,
+    );
+    await expect(controller.tap(SERIAL, 0, 10, -1)).rejects.toThrow(
+      /outside display 0/,
+    );
+    await expect(
+      controller.swipe(SERIAL, 0, { x: 10, y: 20 }, { x: 10, y: 5000 }, 300),
+    ).rejects.toThrow(/outside display 0/);
+  });
+
+  it("still rejects input commands the device does not advertise", async () => {
+    const runner = capabilityRunner().respond(
+      ["shell", "input"],
+      INPUT_HELP.replace("tap <x> <y>", ""),
+      { serial: SERIAL },
+    );
+
+    await expect(
+      new AndroidController(runner).tap(SERIAL, 0, 10, 20),
+    ).rejects.toThrow(/not supported: tap/);
   });
 });
